@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="uk" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#131F24" id="meta-theme-color" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="SlovoSK" />
+  <title>SlovoSK — Словацька з нуля до A1</title>
+  <link rel="manifest" href="./manifest.json" />
+  <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="./icons/icon-192.png" />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- Top Status Header -->
+    <header class="top-bar" id="top-bar">
+      <div class="top-bar-inner">
+        <div class="brand">
+          <span class="brand-badge">SK</span>
+          <span class="brand-name">SlovoSK</span>
+        </div>
+        <div class="stats-row">
+          <button class="stat-pill" id="btn-streak" title="Серія днів">
+            <span>🔥</span><span id="stat-streak">0</span>
+          </button>
+          <button class="stat-pill" id="btn-xp" title="Досвід сьогодні / всього">
+            <span>⚡</span><span id="stat-xp">0</span>
+          </button>
+          <button class="stat-pill stat-hearts" id="btn-hearts-top" title="Серця (натисни для поновлення)">
+            <span>❤️</span><span id="stat-hearts">5</span>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Scrollable Tab View -->
+    <main id="main-view" class="main-view"></main>
+
+    <!-- Bottom Navigation -->
+    <nav class="bottom-nav" id="bottom-nav">
+      <button class="nav-item active" data-tab="course">
+        <span class="nav-icon">🗺️</span>
+        <span class="nav-label">Курс</span>
+      </button>
+      <button class="nav-item" data-tab="review">
+        <span class="nav-icon">🔁</span>
+        <span class="nav-label">Повтор</span>
+      </button>
+      <button class="nav-item" data-tab="ai">
+        <span class="nav-icon">🤖</span>
+        <span class="nav-label">ШІ-Чат</span>
+      </button>
+      <button class="nav-item" data-tab="ref">
+        <span class="nav-icon">📖</span>
+        <span class="nav-label">Довідник</span>
+      </button>
+      <button class="nav-item" data-tab="settings">
+        <span class="nav-icon">⚙️</span>
+        <span class="nav-label">Налашт.</span>
+      </button>
+    </nav>
+  </div>
+
+  <!-- Fullscreen Lesson Overlay -->
+  <div id="lesson-overlay" class="lesson-overlay hidden" aria-hidden="true">
+    <div class="lesson-header">
+      <div class="lesson-header-inner">
+        <button class="icon-btn" id="lesson-close" aria-label="Закрити урок">✕</button>
+        <div class="progress-track">
+          <div class="progress-fill" id="lesson-progress-fill"></div>
+        </div>
+        <button class="stat-pill stat-hearts" id="btn-hearts-lesson" title="Поновити серця">
+          <span>❤️</span><span id="lesson-hearts-val">5</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="lesson-body" id="lesson-stage"></div>
+
+    <div class="lesson-footer" id="lesson-footer">
+      <div class="lesson-footer-inner">
+        <button class="btn btn-primary btn-full" id="lesson-action-btn">ПЕРЕВІРИТИ</button>
+      </div>
+    </div>
+
+    <!-- Bottom Feedback Sheet (strictly full-width, no translateX conflict) -->
+    <div class="feedback-sheet" id="feedback-sheet">
+      <div class="feedback-inner">
+        <div class="feedback-head">
+          <div class="feedback-badge" id="feedback-icon">✓</div>
+          <div class="feedback-text">
+            <div class="feedback-title" id="feedback-title">Чудово!</div>
+            <div class="feedback-sub" id="feedback-sub"></div>
+          </div>
+          <button class="audio-mini-btn hidden" id="feedback-audio-btn" title="Прослухати">🔊</button>
+        </div>
+        <button class="btn btn-full" id="feedback-next-btn">ДАЛІ</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Reusable Modal -->
+  <div id="modal-overlay" class="modal-overlay hidden">
+    <div class="modal-card" id="modal-card"></div>
+  </div>
+
+  <!-- Toast Notification -->
+  <div id="toast" class="toast"></div>
+
+  <script src="./lessons.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>
