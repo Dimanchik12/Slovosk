@@ -1,7 +1,7 @@
 {
-  "name": "SlovoSK — Словацька з нуля до A1",
+  "name": "SlovoSK — Словацька з нуля до A2",
   "short_name": "SlovoSK",
-  "description": "Інтерактивний тренажер словацької мови для українців: від перших слів до роботи та побуту в Словаччині.",
+  "description": "Модульний тренажер словацької мови для українців: від абсолютного нуля до впевненого A1 і A2.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
@@ -11,15 +11,9 @@
   "lang": "uk",
   "icons": [
     {
-      "src": "./icons/icon-192.png",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "any maskable"
-    },
-    {
-      "src": "./icons/icon-512.png",
-      "sizes": "512x512",
-      "type": "image/png",
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
       "purpose": "any maskable"
     }
   ]

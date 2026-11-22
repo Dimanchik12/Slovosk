@@ -7,10 +7,10 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="SlovoSK" />
-  <title>SlovoSK — Словацька з нуля до A1</title>
+  <title>SlovoSK — Словацька з нуля до A2</title>
   <link rel="manifest" href="./manifest.json" />
-  <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
-  <link rel="apple-touch-icon" href="./icons/icon-192.png" />
+  <link rel="icon" type="image/svg+xml" href="./icon.svg" />
+  <link rel="apple-touch-icon" href="./icon.svg" />
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
@@ -26,7 +26,7 @@
           <button class="stat-pill" id="btn-streak" title="Серія днів">
             <span>🔥</span><span id="stat-streak">0</span>
           </button>
-          <button class="stat-pill" id="btn-xp" title="Досвід сьогодні / всього">
+          <button class="stat-pill" id="btn-xp" title="Досвід">
             <span>⚡</span><span id="stat-xp">0</span>
           </button>
           <button class="stat-pill stat-hearts" id="btn-hearts-top" title="Серця (натисни для поновлення)">
@@ -36,8 +36,13 @@
       </div>
     </header>
 
-    <!-- Main Scrollable Tab View -->
-    <main id="main-view" class="main-view"></main>
+    <!-- Main Scrollable View -->
+    <main id="main-view" class="main-view">
+      <div class="card" style="text-align:center;padding:32px 16px;">
+        <div style="font-size:32px;margin-bottom:8px;">⏳</div>
+        <div style="font-weight:800;">Завантаження модулів курсу...</div>
+      </div>
+    </main>
 
     <!-- Bottom Navigation -->
     <nav class="bottom-nav" id="bottom-nav">
@@ -46,7 +51,10 @@
         <span class="nav-label">Курс</span>
       </button>
       <button class="nav-item" data-tab="review">
-        <span class="nav-icon">🔁</span>
+        <span class="nav-icon-wrap">
+          <span class="nav-icon">🔁</span>
+          <span class="nav-badge hidden" id="srs-nav-badge">0</span>
+        </span>
         <span class="nav-label">Повтор</span>
       </button>
       <button class="nav-item" data-tab="ai">
@@ -64,17 +72,20 @@
     </nav>
   </div>
 
-  <!-- Fullscreen Lesson Overlay -->
+  <!-- Fullscreen Lesson / Exam / Story Overlay -->
   <div id="lesson-overlay" class="lesson-overlay hidden" aria-hidden="true">
     <div class="lesson-header">
       <div class="lesson-header-inner">
-        <button class="icon-btn" id="lesson-close" aria-label="Закрити урок">✕</button>
+        <button class="icon-btn" id="lesson-close" aria-label="Закрити">✕</button>
         <div class="progress-track">
           <div class="progress-fill" id="lesson-progress-fill"></div>
         </div>
         <button class="stat-pill stat-hearts" id="btn-hearts-lesson" title="Поновити серця">
           <span>❤️</span><span id="lesson-hearts-val">5</span>
         </button>
+        <div class="stat-pill exam-err-pill hidden" id="exam-err-pill" title="Дозволено максимум 1 помилку">
+          <span>🎓</span><span id="exam-err-val">0/1</span>
+        </div>
       </div>
     </div>
 
@@ -86,7 +97,7 @@
       </div>
     </div>
 
-    <!-- Bottom Feedback Sheet (strictly full-width, no translateX conflict) -->
+    <!-- Bottom Feedback Sheet (full-width, zero horizontal drift) -->
     <div class="feedback-sheet" id="feedback-sheet">
       <div class="feedback-inner">
         <div class="feedback-head">
@@ -107,10 +118,9 @@
     <div class="modal-card" id="modal-card"></div>
   </div>
 
-  <!-- Toast Notification -->
+  <!-- Toast -->
   <div id="toast" class="toast"></div>
 
-  <script src="./lessons.js"></script>
   <script src="./app.js"></script>
 </body>
 </html>

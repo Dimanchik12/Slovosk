@@ -1,27 +1,107 @@
 (function () {
   'use strict';
 
-  const DATA = window.SLOVOSK_DATA;
-  const STORAGE_KEY = 'slovosk_state_v1';
+  const STORAGE_KEY = 'slovosk_state_v2';
+  const LEGACY_KEY = 'slovosk_state_v1';
   const DIACRITICS = ['á', 'ä', 'č', 'ď', 'é', 'í', 'ĺ', 'ľ', 'ň', 'ó', 'ô', 'ŕ', 'š', 'ť', 'ú', 'ý', 'ž'];
-
-  // Flatten lessons & words for quick lookup
-  const ALL_LESSONS = [];
-  const ALL_WORDS = [];
-  const WORD_MAP = {};
-  DATA.course.forEach((sec) => {
-    sec.lessons.forEach((les) => {
-      ALL_LESSONS.push({ ...les, sectionId: sec.id, sectionTitle: sec.title, sectionColor: sec.color });
-      les.words.forEach((w) => {
-        const enriched = { ...w, lessonId: les.id, sectionId: sec.id, lessonTitle: les.title };
-        ALL_WORDS.push(enriched);
-        WORD_MAP[w.id] = enriched;
-      });
-    });
-  });
+  const SRS_DAYS = [0, 1, 3, 7, 14, 30]; // Box 0..5
 
   // =====================================================
-  // STATE MANAGEMENT
+  // MODULAR COURSE LOADER (m1.js, m2.js, m3.js ...)
+  // =====================================================
+  const LOADED_MODULES = [];
+  window.SLOVOSK_REGISTER = function (mod) {
+    if (!mod || !mod.id) return;
+    const idx = LOADED_MODULES.findIndex((m) => m.id === mod.id);
+    if (idx >= 0) LOADED_MODULES[idx] = mod;
+    else LOADED_MODULES.push(mod);
+  };
+
+  let SECTIONS = [];
+  let ALL_LESSONS = [];
+  let ALL_WORDS = [];
+  let WORD_MAP = {};
+  let REF = {
+    pronunciation: [],
+    falseFriends: [],
+    grammar: [],
+    aiScenarios: []
+  };
+
+  function rebuildCourseIndex() {
+    LOADED_MODULES.sort((a, b) => (a.order || 0) - (b.order || 0));
+    SECTIONS = [];
+    ALL_LESSONS = [];
+    ALL_WORDS = [];
+    WORD_MAP = {};
+    REF = { pronunciation: [], falseFriends: [], grammar: [], aiScenarios: [] };
+
+    const seenWords = new Set();
+    LOADED_MODULES.forEach((mod) => {
+      (mod.sections || []).forEach((sec) => {
+        const sObj = { ...sec, moduleId: mod.id, level: sec.level || 'A1' };
+        SECTIONS.push(sObj);
+        (sec.lessons || []).forEach((les) => {
+          ALL_LESSONS.push({
+            ...les,
+            sectionId: sec.id,
+            sectionTitle: sec.title,
+            sectionColor: sec.color,
+            level: sObj.level
+          });
+          (les.words || []).forEach((w) => {
+            if (seenWords.has(w.id)) return;
+            seenWords.add(w.id);
+            const enriched = {
+              ...w,
+              lessonId: les.id,
+              sectionId: sec.id,
+              lessonTitle: les.title,
+              level: sObj.level
+            };
+            ALL_WORDS.push(enriched);
+            WORD_MAP[w.id] = enriched;
+          });
+        });
+      });
+
+      if (mod.reference) {
+        if (mod.reference.pronunciation) REF.pronunciation.push(...mod.reference.pronunciation);
+        if (mod.reference.falseFriends) REF.falseFriends.push(...mod.reference.falseFriends);
+        if (mod.reference.grammar) REF.grammar.push(...mod.reference.grammar);
+        if (mod.reference.aiScenarios) {
+          mod.reference.aiScenarios.forEach((sc) => {
+            if (!REF.aiScenarios.some((x) => x.id === sc.id)) REF.aiScenarios.push(sc);
+          });
+        }
+      }
+    });
+  }
+
+  function loadScript(src) {
+    return new Promise((resolve) => {
+      const s = document.createElement('script');
+      s.src = src;
+      s.async = false;
+      s.onload = () => resolve(true);
+      s.onerror = () => {
+        s.remove();
+        resolve(false);
+      };
+      document.head.appendChild(s);
+    });
+  }
+
+  async function discoverModules() {
+    for (let n = 1; n <= 30; n++) {
+      const ok = await loadScript(`./m${n}.js`);
+      if (!ok) break;
+    }
+    rebuildCourseIndex();
+  }
+
+  // =====================================================
+  // PERSISTENT STATE (Never loses progress on module updates)
   // =====================================================
   const todayKey = () => new Date().toISOString().slice(0, 10);
 
@@ -35,9 +115,13 @@
     hearts: 5,
     infiniteHearts: false,
     freeUnlock: false,
+    levelFilter: 'ALL',
     completedLessons: [],
+    completedStories: [],
+    passedExams: [],
     weakWords: [],
     knownWords: [],
+    srs: {}, // wordId -> { box: 0..5, nextReview: ms }
     theme: 'dark',
     soundFx: true,
     autoSpeak: true,
@@ -45,14 +129,43 @@
     preferredVoiceURI: '',
     geminiKey: '',
     refSubtab: 'dict',
-    aiScenario: 'interview'
+    reviewSubtab: 'srs',
+    aiScenario: 'interview',
+    audioPauseSec: 3,
+    audioSpeakUk: true,
+    audioSlow: false
   });
 
   function loadState() {
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) return defaultState();
+      let raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) {
+        const legacy = localStorage.getItem(LEGACY_KEY);
+        if (legacy) {
+          const old = JSON.parse(legacy);
+          const migrated = {
+            ...defaultState(),
+            xp: old.xp || 0,
+            dailyXp: old.dailyXp || 0,
+            dailyGoal: old.dailyGoal || 50,
+            streak: old.streak || 0,
+            streakDay: old.streakDay || '',
+            hearts: typeof old.hearts === 'number' ? old.hearts : 5,
+            infiniteHearts: !!old.infiniteHearts,
+            theme: old.theme || 'dark',
+            soundFx: old.soundFx !== false,
+            autoSpeak: old.autoSpeak !== false,
+            micEnabled: old.micEnabled !== false,
+            preferredVoiceURI: old.preferredVoiceURI || '',
+            geminiKey: old.geminiKey || ''
+          };
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(migrated));
+          return migrated;
+        }
+        return defaultState();
+      }
       const parsed = { ...defaultState(), ...JSON.parse(raw) };
+      if (!parsed.srs || typeof parsed.srs !== 'object') parsed.srs = {};
       const today = todayKey();
       if (parsed.lastDay !== today) {
         parsed.dailyXp = 0;
@@ -70,6 +183,7 @@
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     } catch {}
     updateHeader();
+    updateSrsBadge();
   }
 
   function addXP(amount) {
@@ -83,18 +197,60 @@
 
     if (state.streakDay !== today) {
       const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
-      if (state.streakDay === yesterday) {
-        state.streak += 1;
-      } else {
-        state.streak = Math.max(1, state.streak === 0 ? 1 : 1);
-      }
+      if (state.streakDay === yesterday) state.streak += 1;
+      else state.streak = 1;
       state.streakDay = today;
     }
     saveState();
   }
 
   // =====================================================
-  // SOUND FX (Web Audio API — 100% Offline)
+  // SMART SPACED REPETITION (SRS: 1 -> 3 -> 7 -> 14d)
+  // =====================================================
+  function srsMarkCorrect(wordId, isReviewSession = false) {
+    if (!wordId) return;
+    if (!state.knownWords.includes(wordId)) state.knownWords.push(wordId);
+    const now = Date.now();
+    const cur = state.srs[wordId];
+    if (!cur) {
+      state.srs[wordId] = { box: 1, nextReview: now + SRS_DAYS[1] * 86400000 };
+    } else if (isReviewSession || cur.nextReview <= now) {
+      const nextBox = Math.min(5, (cur.box || 0) + 1);
+      state.srs[wordId] = { box: nextBox, nextReview: now + SRS_DAYS[nextBox] * 86400000 };
+    }
+    if (isReviewSession) {
+      state.weakWords = state.weakWords.filter((id) => id !== wordId);
+    }
+  }
+
+  function srsMarkWrong(wordId) {
+    if (!wordId) return;
+    if (!state.weakWords.includes(wordId)) state.weakWords.push(wordId);
+    state.srs[wordId] = { box: 0, nextReview: Date.now() };
+  }
+
+  function getDueSrsWords() {
+    const now = Date.now();
+    return Object.keys(state.srs)
+      .filter((id) => WORD_MAP[id] && state.srs[id].nextReview <= now)
+      .sort((a, b) => (state.srs[a].box || 0) - (state.srs[b].box || 0))
+      .map((id) => WORD_MAP[id]);
+  }
+
+  function updateSrsBadge() {
+    const badge = document.getElementById('srs-nav-badge');
+    if (!badge) return;
+    const due = getDueSrsWords().length;
+    if (due > 0) {
+      badge.textContent = due > 99 ? '99+' : String(due);
+      badge.classList.remove('hidden');
+    } else {
+      badge.classList.add('hidden');
+    }
+  }
+
+  // =====================================================
+  // SOUND FX (Offline Web Audio API)
   // =====================================================
   const SoundFX = (() => {
     let ctx = null;
@@ -103,9 +259,7 @@
         const AC = window.AudioContext || window.webkitAudioContext;
         if (AC) ctx = new AC();
       }
-      if (ctx && ctx.state === 'suspended') {
-        ctx.resume().catch(() => {});
-      }
+      if (ctx && ctx.state === 'suspended') ctx.resume().catch(() => {});
       return ctx;
     }
 
@@ -147,7 +301,7 @@
   })();
 
   // =====================================================
-  // ANDROID CHROME TTS ENGINE (sk-SK)
+  // ANDROID CHROME TTS ENGINE (sk-SK + uk-UA for Audio Mode)
   // =====================================================
   const SpeechEngine = (() => {
     const supported = 'speechSynthesis' in window && typeof SpeechSynthesisUtterance !== 'undefined';
@@ -168,7 +322,6 @@
     if (supported) {
       refreshVoices();
       window.speechSynthesis.onvoiceschanged = refreshVoices;
-      // Android Chrome often populates voices asynchronously
       let tries = 0;
       const timer = setInterval(() => {
         tries += 1;
@@ -181,6 +334,11 @@
       return voices.filter((v) => (v.lang || '').toLowerCase().startsWith('sk'));
     }
 
+    function getUkrainianVoice() {
+      const uk = voices.filter((v) => (v.lang || '').toLowerCase().startsWith('uk'));
+      return uk.find((v) => /google/i.test(v.name)) || uk[0] || null;
+    }
+
     function pickBestVoice() {
       const skVoices = getSlovakVoices();
       if (state.preferredVoiceURI) {
@@ -188,28 +346,30 @@
         if (chosen) return chosen;
       }
       if (skVoices.length > 0) {
-        const googleSk = skVoices.find((v) => /google/i.test(v.name));
-        return googleSk || skVoices[0];
+        return skVoices.find((v) => /google/i.test(v.name)) || skVoices[0];
       }
-      // Fallback: Czech voice is closest if Slovak not installed yet
-      const csVoice = voices.find((v) => (v.lang || '').toLowerCase().startsWith('cs'));
-      return csVoice || null;
+      return voices.find((v) => (v.lang || '').toLowerCase().startsWith('cs')) || null;
     }
 
-    function speak(text, slow = false) {
+    function cancel() {
+      if (!supported) return;
+      try { window.speechSynthesis.cancel(); } catch {}
+      currentUtterance = null;
+    }
+
+    function speak(text, slow = false, onDone = null) {
       if (!supported) {
-        showToast('Озвучка недоступна в цьому браузері. Відкрий у Chrome.');
+        if (onDone) onDone();
+        else showToast('Озвучка недоступна в цьому браузері. Відкрий у Chrome.');
         return false;
       }
       refreshVoices();
-      try {
-        window.speechSynthesis.cancel();
-      } catch {}
-
+      cancel();
       const clean = String(text || '').trim();
-      if (!clean) return false;
-
-      // Short delay fixes Android Chrome speechSynthesis lockup after cancel()
+      if (!clean) {
+        if (onDone) onDone();
+        return false;
+      }
       setTimeout(() => {
         try {
           const u = new SpeechSynthesisUtterance(clean);
@@ -219,16 +379,62 @@
           const v = pickBestVoice();
           if (v) {
             u.voice = v;
-            if ((v.lang || '').toLowerCase().startsWith('sk')) {
-              u.lang = v.lang;
-            }
+            if ((v.lang || '').toLowerCase().startsWith('sk')) u.lang = v.lang;
           }
-          currentUtterance = u; // prevent GC on Android
-          u.onend = () => { currentUtterance = null; };
-          u.onerror = () => { currentUtterance = null; };
+          let finished = false;
+          const done = () => {
+            if (finished) return;
+            finished = true;
+            currentUtterance = null;
+            if (onDone) onDone();
+          };
+          currentUtterance = u;
+          u.onend = done;
+          u.onerror = done;
           window.speechSynthesis.speak(u);
+          // Safety fallback in case Android Chrome fails to fire onend
+          if (onDone) setTimeout(done, Math.max(3500, clean.length * 140));
         } catch {
-          showToast('Не вдалося запустити голос. Перевір налаштування TTS.');
+          if (onDone) onDone();
+        }
+      }, 45);
+      return true;
+    }
+
+    function speakUk(text, onDone = null) {
+      if (!supported) {
+        if (onDone) onDone();
+        return false;
+      }
+      refreshVoices();
+      const ukVoice = getUkrainianVoice();
+      if (!ukVoice) {
+        // No Ukrainian voice installed: let caller wait visually instead of reading gibberish
+        if (onDone) setTimeout(onDone, 1600);
+        return false;
+      }
+      cancel();
+      const clean = String(text || '').replace(/\s*\/\s*/g, ', ').trim();
+      setTimeout(() => {
+        try {
+          const u = new SpeechSynthesisUtterance(clean);
+          u.lang = ukVoice.lang || 'uk-UA';
+          u.voice = ukVoice;
+          u.rate = 0.96;
+          let finished = false;
+          const done = () => {
+            if (finished) return;
+            finished = true;
+            currentUtterance = null;
+            if (onDone) onDone();
+          };
+          currentUtterance = u;
+          u.onend = done;
+          u.onerror = done;
+          window.speechSynthesis.speak(u);
+          if (onDone) setTimeout(done, Math.max(3200, clean.length * 140));
+        } catch {
+          if (onDone) onDone();
         }
       }, 45);
       return true;
@@ -239,14 +445,17 @@
       refreshVoices,
       getAllVoices: () => voices,
       getSlovakVoices,
+      getUkrainianVoice,
       pickBestVoice,
       speak,
+      speakUk,
+      cancel,
       onChange(fn) { listeners.push(fn); }
     };
   })();
 
   // =====================================================
-  // SPEECH RECOGNITION ENGINE (sk-SK)
+  // MICROPHONE RECOGNITION (sk-SK)
   // =====================================================
   const MicEngine = (() => {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -273,9 +482,7 @@
 
       rec.onresult = (e) => {
         const alts = [];
-        for (let i = 0; i < e.results[0].length; i++) {
-          alts.push(e.results[0][i].transcript);
-        }
+        for (let i = 0; i < e.results[0].length; i++) alts.push(e.results[0][i].transcript);
         onResult && onResult(alts[0] || '', alts);
       };
       rec.onerror = (e) => {
@@ -289,37 +496,24 @@
         activeRec = null;
         onEnd && onEnd();
       };
-      try {
-        rec.start();
-      } catch {
-        onError && onError('Не вдалося запустити мікрофон.');
-      }
+      try { rec.start(); } catch { onError && onError('Не вдалося запустити мікрофон.'); }
     }
 
     return { supported: !!SR, listen, stop };
   })();
 
   // =====================================================
-  // STRING NORMALIZATION & UTILITIES
+  // UTILITIES
   // =====================================================
   function stripDiacritics(str) {
-    return String(str || '')
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '');
+    return String(str || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   }
-
   function normStrict(str) {
-    return String(str || '')
-      .toLowerCase()
-      .replace(/[.,!?;:«»"()—–-]/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
+    return String(str || '').toLowerCase().replace(/[.,!?;:«»"()—–-]/g, ' ').replace(/\s+/g, ' ').trim();
   }
-
   function normLoose(str) {
     return normStrict(stripDiacritics(str));
   }
-
   function shuffle(arr) {
     const a = arr.slice();
     for (let i = a.length - 1; i > 0; i--) {
@@ -328,13 +522,8 @@
     }
     return a;
   }
-
   function escHtml(s) {
-    return String(s || '')
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
+    return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 
   function showToast(msg) {
@@ -342,7 +531,7 @@
     el.textContent = msg;
     el.classList.add('show');
     clearTimeout(showToast._t);
-    showToast._t = setTimeout(() => el.classList.remove('show'), 2600);
+    showToast._t = setTimeout(() => el.classList.remove('show'), 2700);
   }
 
   function applyTheme() {
@@ -361,7 +550,7 @@
   }
 
   // =====================================================
-  // MODAL HELPERS (Hearts, Install, Backup)
+  // MODAL HELPERS
   // =====================================================
   const modalOverlay = document.getElementById('modal-overlay');
   const modalCard = document.getElementById('modal-card');
@@ -371,23 +560,18 @@
     modalOverlay.classList.remove('hidden');
     modalOverlay.dataset.dismissible = dismissible ? '1' : '0';
   }
-
   function closeModal() {
     modalOverlay.classList.add('hidden');
     modalCard.innerHTML = '';
   }
-
   modalOverlay.addEventListener('click', (e) => {
-    if (e.target === modalOverlay && modalOverlay.dataset.dismissible === '1') {
-      closeModal();
-    }
+    if (e.target === modalOverlay && modalOverlay.dataset.dismissible === '1') closeModal();
   });
 
   function openHeartsModal(fromZero = false) {
     const statusText = state.infiniteHearts
-      ? 'Увімкнено режим <strong>♾️ Безкінечні серця</strong> — можеш помилятися без обмежень.'
-      : `Зараз у тебе <strong>${state.hearts} / 5 ❤️</strong>. Поновлення абсолютно безкоштовне.`;
-
+      ? 'Увімкнено режим <strong>♾️ Безкінечні серця</strong> — помилки не забирають серця.'
+      : `Зараз у тебе <strong>${state.hearts} / 5 ❤️</strong>. Поновлення безкоштовне.`;
     openModal(`
       <h3>${fromZero ? '💔 Серця закінчилися!' : '❤️ Керування серцями'}</h3>
       <p class="muted" style="font-size:14px;margin-bottom:16px;">${statusText}</p>
@@ -416,23 +600,55 @@
       saveState();
       SoundFX.ok();
       closeModal();
-      showToast(state.infiniteHearts ? 'Безкінечні серця увімкнено ♾️' : 'Звичайний режим сердець (5/5)');
+      showToast(state.infiniteHearts ? 'Безкінечні серця увімкнено ♾️' : 'Звичайний режим сердець');
     };
     const closeBtn = document.getElementById('m-close-hearts');
     if (closeBtn) closeBtn.onclick = closeModal;
     const exitBtn = document.getElementById('m-exit-lesson');
-    if (exitBtn) exitBtn.onclick = () => { closeModal(); exitLesson(); };
+    if (exitBtn) exitBtn.onclick = () => { closeModal(); exitOverlay(); };
   }
 
   // =====================================================
-  // NAVIGATION & TABS
+  // UNLOCKING LOGIC (Strict Exam Gatekeeper per Section!)
+  // =====================================================
+  function isSectionUnlocked(secIdx) {
+    if (state.freeUnlock || secIdx === 0) return true;
+    const prevSec = SECTIONS[secIdx - 1];
+    return state.passedExams.includes(prevSec.id);
+  }
+
+  function isLessonUnlocked(secIdx, lesIdx) {
+    if (state.freeUnlock) return true;
+    if (!isSectionUnlocked(secIdx)) return false;
+    if (lesIdx === 0) return true;
+    const prevLesson = SECTIONS[secIdx].lessons[lesIdx - 1];
+    return state.completedLessons.includes(prevLesson.id);
+  }
+
+  function areAllSectionLessonsDone(sec) {
+    return sec.lessons.every((l) => state.completedLessons.includes(l.id));
+  }
+
+  function isExamUnlocked(secIdx) {
+    if (state.freeUnlock) return true;
+    return isSectionUnlocked(secIdx) && areAllSectionLessonsDone(SECTIONS[secIdx]);
+  }
+
+  function isStoryUnlocked(secIdx) {
+    if (state.freeUnlock) return true;
+    return isSectionUnlocked(secIdx) && areAllSectionLessonsDone(SECTIONS[secIdx]);
+  }
+
+  // =====================================================
+  // NAVIGATION
   // =====================================================
   let activeTab = 'course';
   const mainView = document.getElementById('main-view');
 
   function setTab(tab) {
-    activeTab = tab;
+    stopAudioMode();
     MicEngine.stop();
+    activeTab = tab;
     document.querySelectorAll('.nav-item').forEach((btn) => {
       btn.classList.toggle('active', btn.dataset.tab === tab);
     });
@@ -461,100 +677,257 @@
   });
 
   // =====================================================
-  // TAB 1: COURSE (Zero to A1)
+  // TAB 1: COURSE (Accordion + Levels A0/A1/A2 + Exams + Stories)
   // =====================================================
-  function isLessonUnlocked(idx) {
-    if (state.freeUnlock || idx === 0) return true;
-    const prevId = ALL_LESSONS[idx - 1].id;
-    return state.completedLessons.includes(prevId);
+  const expandedSections = {}; // secId -> boolean
+
+  function initAccordionDefaults() {
+    let firstActiveFound = false;
+    SECTIONS.forEach((sec, idx) => {
+      if (sec.id in expandedSections) return;
+      const passed = state.passedExams.includes(sec.id);
+      const unlocked = isSectionUnlocked(idx);
+      if (!passed && unlocked && !firstActiveFound) {
+        expandedSections[sec.id] = true;
+        firstActiveFound = true;
+      } else {
+        expandedSections[sec.id] = false;
+      }
+    });
+    if (!firstActiveFound && SECTIONS.length > 0) {
+      expandedSections[SECTIONS[SECTIONS.length - 1].id] = true;
+    }
   }
 
   function renderCourseTab() {
-    const pct = Math.min(100, Math.round((state.dailyXp / state.dailyGoal) * 100));
-    const doneCount = state.completedLessons.length;
-    const totalLessons = ALL_LESSONS.length;
-    const nextIdx = ALL_LESSONS.findIndex((l) => !state.completedLessons.includes(l.id));
+    if (SECTIONS.length === 0) {
+      mainView.innerHTML = `
+        <div class="card" style="text-align:center;padding:24px;">
+          <h3>Не знайдено жодного модуля</h3>
+          <p class="muted">Перевір, щоб файл <strong>m1.js</strong> був завантажений поруч із index.html.</p>
+        </div>
+      `;
+      return;
+    }
+
+    initAccordionDefaults();
+    const dailyPct = Math.min(100, Math.round((state.dailyXp / state.dailyGoal) * 100));
+    const knownCount = state.knownWords.filter((id) => WORD_MAP[id]).length;
+    const targetA1 = Math.max(650, ALL_WORDS.length);
+    const a1Pct = Math.min(100, Math.round((knownCount / targetA1) * 100));
+    const remainA1 = Math.max(0, 650 - knownCount);
+
+    const lvlCounts = { ALL: SECTIONS.length, A0: 0, A1: 0, A2: 0 };
+    SECTIONS.forEach((s) => { if (lvlCounts[s.level] !== undefined) lvlCounts[s.level]++; });
+
+    const filteredSections = SECTIONS.map((s, idx) => ({ s, idx }))
+      .filter(({ s }) => state.levelFilter === 'ALL' || s.level === state.levelFilter);
 
     let html = `
       <div class="card goal-card">
         <div class="row-between">
           <div>
             <div style="font-weight:900;font-size:15px;">🎯 Ціль на сьогодні</div>
-            <div class="muted">Пройдено уроків: <strong>${doneCount} / ${totalLessons}</strong> (${ALL_WORDS.length} слів A1)</div>
+            <div class="muted">Модулів: <strong>${LOADED_MODULES.length}</strong> • Екзаменів: <strong>${state.passedExams.length}/${SECTIONS.length}</strong></div>
           </div>
           <div style="font-weight:900;color:var(--green);font-size:15px;">${state.dailyXp} / ${state.dailyGoal} XP</div>
         </div>
-        <div class="goal-bar"><div class="goal-fill" style="width:${pct}%"></div></div>
+        <div class="goal-bar"><div class="goal-fill" style="width:${dailyPct}%"></div></div>
+
+        <div class="row-between" style="margin-top:12px;">
+          <div class="muted" style="font-weight:700;">📈 Шкала до рівня A1</div>
+          <div style="font-size:12.5px;font-weight:800;color:var(--blue);">${knownCount} / ${ALL_WORDS.length} слів ${remainA1 > 0 ? `(до A1: ~${remainA1})` : '🎉'}</div>
+        </div>
+        <div class="goal-bar"><div class="goal-fill blue" style="width:${a1Pct}%"></div></div>
+      </div>
+
+      <div class="level-tabs" id="level-tabs">
+        <button class="level-tab ${state.levelFilter === 'ALL' ? 'active' : ''}" data-lvl="ALL">Усі (${lvlCounts.ALL})</button>
+        <button class="level-tab ${state.levelFilter === 'A0' ? 'active' : ''}" data-lvl="A0">A0 (${lvlCounts.A0})</button>
+        <button class="level-tab ${state.levelFilter === 'A1' ? 'active' : ''}" data-lvl="A1">A1 (${lvlCounts.A1})</button>
+        <button class="level-tab ${state.levelFilter === 'A2' ? 'active' : ''}" data-lvl="A2">A2 (${lvlCounts.A2})</button>
       </div>
 
       <div class="mode-toggle-bar">
-        <div class="muted" style="font-weight:700;">Хронологія курсу</div>
+        <div class="muted" style="font-weight:700;">Екзамен після розділу: ≤1 помилка</div>
         <button class="chip-btn ${state.freeUnlock ? 'active' : ''}" id="toggle-unlock-mode">
           ${state.freeUnlock ? '🔓 Вільний доступ' : '🔒 По порядку'}
         </button>
       </div>
     `;
 
-    let globalIdx = 0;
-    DATA.course.forEach((sec) => {
+    if (filteredSections.length === 0) {
       html += `
-        <div class="section-banner" style="background:${sec.color};">
-          <h2>${escHtml(sec.title)}</h2>
-          <p>${escHtml(sec.subtitle)}</p>
+        <div class="card" style="text-align:center;padding:24px 16px;">
+          <div style="font-size:34px;margin-bottom:8px;">📦</div>
+          <div style="font-weight:900;font-size:16px;margin-bottom:6px;">Рівень ${escHtml(state.levelFilter)} поки не завантажено</div>
+          <div class="muted">Коли будеш готовий, просто попроси наступний модуль (<strong>m${LOADED_MODULES.length + 1}.js</strong>) і закинь його на GitHub — прогрес збережеться автоматично.</div>
         </div>
-        <div class="lesson-list">
       `;
-      sec.lessons.forEach((les) => {
-        const idx = globalIdx++;
-        const done = state.completedLessons.includes(les.id);
-        const unlocked = isLessonUnlocked(idx);
-        const isNext = idx === nextIdx;
-        const cls = done ? 'done' : (isNext ? 'next-up' : (!unlocked ? 'locked' : ''));
-        const actionTag = done ? 'Повторити' : (unlocked ? 'Старт' : '🔒');
+    }
 
+    filteredSections.forEach(({ s: sec, idx: secIdx }) => {
+      const secUnlocked = isSectionUnlocked(secIdx);
+      const examPassed = state.passedExams.includes(sec.id);
+      const doneLessonsInSec = sec.lessons.filter((l) => state.completedLessons.includes(l.id)).length;
+      const isOpen = !!expandedSections[sec.id];
+      const statusLabel = examPassed
+        ? 'Складено ✅'
+        : (secUnlocked ? `${doneLessonsInSec}/${sec.lessons.length} уроків` : '🔒 Склади попередній екзамен');
+
+      html += `
+        <div class="section-wrap">
+          <button class="section-banner ${secUnlocked ? '' : 'sec-locked'}" style="background:${sec.color};" data-toggle-sec="${sec.id}">
+            <div style="min-width:0;">
+              <div class="sec-top-tags">
+                <span class="sec-lvl-pill">${escHtml(sec.level)}</span>
+                <span class="sec-lvl-pill">${statusLabel}</span>
+              </div>
+              <h2>${escHtml(sec.title)}</h2>
+              <p>${escHtml(sec.subtitle)}</p>
+            </div>
+            <span class="sec-chevron">${isOpen ? '▾' : '▸'}</span>
+          </button>
+      `;
+
+      if (isOpen) {
+        html += `<div class="lesson-list">`;
+
+        // 4 Lessons
+        sec.lessons.forEach((les, lesIdx) => {
+          const done = state.completedLessons.includes(les.id);
+          const unlocked = isLessonUnlocked(secIdx, lesIdx);
+          const isNext = unlocked && !done;
+          const cls = done ? 'done' : (isNext ? 'next-up' : (!unlocked ? 'locked' : ''));
+          const actionTag = done ? 'Повторити' : (unlocked ? 'Старт' : '🔒');
+          const gramTag = (les.grammar && les.grammar.length) ? ' • Граматика' : '';
+
+          html += `
+            <button class="lesson-card ${cls}" data-lesson-id="${les.id}" ${unlocked ? '' : 'data-locked="1"'}>
+              <div class="lesson-icon-box">
+                <span>${les.icon}</span>
+                ${done ? '<span class="lesson-check-badge">✓</span>' : ''}
+              </div>
+              <div class="lesson-meta">
+                <div class="lesson-code">Урок ${escHtml(les.code)} • 6 слів${gramTag}</div>
+                <div class="lesson-title">${escHtml(les.title)}</div>
+                <div class="lesson-desc">${escHtml(les.desc)}</div>
+              </div>
+              <div class="lesson-action-tag">${actionTag}</div>
+            </button>
+          `;
+        });
+
+        // Mini-Dialogue Story Card
+        if (sec.story) {
+          const stDone = state.completedStories.includes(sec.story.id);
+          const stUnlocked = isStoryUnlocked(secIdx);
+          html += `
+            <button class="lesson-card story-card ${stDone ? 'done' : ''} ${stUnlocked ? '' : 'locked'}"
+              data-story-sec="${sec.id}" ${stUnlocked ? '' : 'data-locked="1"'}>
+              <div class="lesson-icon-box">
+                <span>${sec.story.icon || '💬'}</span>
+                ${stDone ? '<span class="lesson-check-badge">✓</span>' : ''}
+              </div>
+              <div class="lesson-meta">
+                <div class="lesson-code">Міні-діалог • +15 XP</div>
+                <div class="lesson-title">${escHtml(sec.story.title)}</div>
+                <div class="lesson-desc">${escHtml(sec.story.desc)}</div>
+              </div>
+              <div class="lesson-action-tag">${stDone ? 'Ще раз' : (stUnlocked ? 'Читати' : '🔒')}</div>
+            </button>
+          `;
+        }
+
+        // Section Exam Card (Max 1 mistake!)
+        const exUnlocked = isExamUnlocked(secIdx);
         html += `
-          <button class="lesson-card ${cls}" data-lesson-id="${les.id}" ${unlocked ? '' : 'data-locked="1"'}>
+          <button class="lesson-card exam-card ${examPassed ? 'done' : ''} ${exUnlocked ? '' : 'locked'}"
+            data-exam-sec="${sec.id}" ${exUnlocked ? '' : 'data-locked="1"'}>
             <div class="lesson-icon-box">
-              <span>${les.icon}</span>
-              ${done ? '<span class="lesson-check-badge">✓</span>' : ''}
+              <span>🎓</span>
+              ${examPassed ? '<span class="lesson-check-badge">✓</span>' : ''}
             </div>
             <div class="lesson-meta">
-              <div class="lesson-code">Урок ${escHtml(les.code)} • 6 слів</div>
-              <div class="lesson-title">${escHtml(les.title)}</div>
-              <div class="lesson-desc">${escHtml(les.desc)}</div>
+              <div class="lesson-code">Екзамен розділу • Макс. 1 помилка</div>
+              <div class="lesson-title">Перевірка знань (${sec.lessons.length * 6} слів)</div>
+              <div class="lesson-desc">${examPassed ? 'Розділ успішно складено! Наступна тема відкрита.' : 'Склади тест (до 1 помилки), щоб відкрити наступний розділ'}</div>
             </div>
-            <div class="lesson-action-tag">${actionTag}</div>
+            <div class="lesson-action-tag">${examPassed ? 'Складено' : (exUnlocked ? 'Скласти' : '🔒')}</div>
           </button>
         `;
-      });
+
+        html += `</div>`;
+      }
       html += `</div>`;
     });
 
     mainView.innerHTML = html;
+
+    // Bind events
+    document.getElementById('level-tabs').querySelectorAll('.level-tab').forEach((b) => {
+      b.onclick = () => {
+        state.levelFilter = b.dataset.lvl;
+        saveState();
+        SoundFX.tap();
+        renderCourseTab();
+      };
+    });
 
     document.getElementById('toggle-unlock-mode').onclick = () => {
       state.freeUnlock = !state.freeUnlock;
       saveState();
       SoundFX.tap();
       renderCourseTab();
-      showToast(state.freeUnlock ? 'Усі 24 уроки відкрито!' : 'Увімкнено сувору хронологію');
+      showToast(state.freeUnlock ? 'Вільний доступ увімкнено' : 'Сувора хронологія + екзамени');
     };
 
-    mainView.querySelectorAll('.lesson-card').forEach((card) => {
-      card.addEventListener('click', () => {
+    mainView.querySelectorAll('[data-toggle-sec]').forEach((b) => {
+      b.onclick = () => {
+        const sid = b.dataset.toggleSec;
+        expandedSections[sid] = !expandedSections[sid];
+        SoundFX.tap();
+        renderCourseTab();
+      };
+    });
+
+    mainView.querySelectorAll('[data-lesson-id]').forEach((card) => {
+      card.onclick = () => {
         if (card.dataset.locked === '1') {
-          showToast('Спочатку пройди попередній урок (або увімкни «Вільний доступ» вгорі)');
+          showToast('Спочатку пройди попередній урок або екзамен розділу!');
           return;
         }
         startLesson(card.dataset.lessonId);
-      });
+      };
+    });
+
+    mainView.querySelectorAll('[data-story-sec]').forEach((card) => {
+      card.onclick = () => {
+        if (card.dataset.locked === '1') {
+          showToast('Спочатку пройди всі 4 уроки цього розділу!');
+          return;
+        }
+        const sec = SECTIONS.find((s) => s.id === card.dataset.storySec);
+        if (sec && sec.story) startStory(sec);
+      };
+    });
+
+    mainView.querySelectorAll('[data-exam-sec]').forEach((card) => {
+      card.onclick = () => {
+        if (card.dataset.locked === '1') {
+          showToast('Спочатку заверши всі 4 уроки розділу, щоб відкрити екзамен!');
+          return;
+        }
+        const sec = SECTIONS.find((s) => s.id === card.dataset.examSec);
+        if (sec) startSectionExam(sec);
+      };
     });
   }
 
   // =====================================================
-  // LESSON ENGINE (Strict 4-Stage Zero-to-Hero)
+  // LESSON + EXAM ENGINE
   // =====================================================
-  let activeLesson = null;
+  let activeSession = null; // { mode: 'lesson'|'exam'|'srs'|'custom', ... }
 
   function pickDistractors(correctWord, pool, count = 3) {
     const others = pool.filter((w) => w.id !== correctWord.id && w.uk !== correctWord.uk && w.sk !== correctWord.sk);
@@ -567,107 +940,205 @@
   }
 
   function buildLessonQueue(lesson) {
-    const w = lesson.words; // 6 words
+    const w = lesson.words;
     const g1 = w.slice(0, 3);
     const g2 = w.slice(3, 6);
     const q = [];
 
-    // STAGE 1: Introduce words 1..3 one by one
+    // Stage 1: Intro words 1..3
     g1.forEach((word) => q.push({ type: 'intro', word }));
-
-    // STAGE 2: Practice ONLY words 1..3
+    // Stage 2: Drill words 1..3 ONLY
     q.push({ type: 'mc_sk_uk', word: g1[0], pool: w });
     q.push({ type: 'mc_uk_sk', word: g1[1], pool: w });
-    if (SpeechEngine.supported) {
-      q.push({ type: 'listen_mc', word: g1[2], pool: w });
-    } else {
-      q.push({ type: 'mc_sk_uk', word: g1[2], pool: w });
-    }
+    q.push({ type: SpeechEngine.supported ? 'listen_mc' : 'mc_sk_uk', word: g1[2], pool: w });
     q.push({ type: 'mc_uk_sk', word: g1[0], pool: w });
 
-    // STAGE 3: Introduce words 4..6 one by one
+    // Stage 3: Intro words 4..6 + drill
     g2.forEach((word) => q.push({ type: 'intro', word }));
-
-    // Practice ONLY words 4..6
     q.push({ type: 'mc_sk_uk', word: g2[0], pool: w });
     q.push({ type: 'mc_uk_sk', word: g2[1], pool: w });
-    if (SpeechEngine.supported) {
-      q.push({ type: 'listen_mc', word: g2[2], pool: w });
-    } else {
-      q.push({ type: 'mc_sk_uk', word: g2[2], pool: w });
-    }
+    q.push({ type: SpeechEngine.supported ? 'listen_mc' : 'mc_sk_uk', word: g2[2], pool: w });
 
-    // Match all 6 words of this lesson!
+    // Match all 6 words
     q.push({ type: 'match_pairs', words: w });
 
-    // STAGE 4: Build sentences from learned words + Typing + Speaking
+    // Stage 4: Grammar drills (if any) + Sentences + Typing + Mic
+    (lesson.grammar || []).forEach((g) => q.push({ type: 'grammar', gram: g }));
+
     const sents = lesson.sentences || [];
     if (sents[0]) q.push({ type: 'word_bank', sentence: sents[0], lessonWords: w });
     if (sents[1]) q.push({ type: 'word_bank', sentence: sents[1], lessonWords: w });
 
-    // Typing a core word from this lesson
-    const typeWord = shuffle(w)[0];
-    q.push({ type: 'typing', word: typeWord });
+    q.push({ type: 'typing', word: shuffle(w)[0] });
 
-    // Optional speaking exercise (if enabled & supported)
     if (state.micEnabled && MicEngine.supported && sents[2]) {
       q.push({ type: 'speak', sentence: sents[2] });
     } else if (sents[2]) {
       q.push({ type: 'word_bank', sentence: sents[2], lessonWords: w });
     }
-
     return q;
   }
 
-  function startLesson(lessonId, customQueue = null, customTitle = '') {
-    if (!state.infiniteHearts && state.hearts <= 0) {
-      openHeartsModal(true);
-      return;
+  function buildExamQueue(sec) {
+    const secWords = [];
+    const secGrams = [];
+    const secSents = [];
+    sec.lessons.forEach((l) => {
+      secWords.push(...l.words);
+      if (l.grammar) secGrams.push(...l.grammar);
+      if (l.sentences) secSents.push(...l.sentences);
+    });
+
+    const pickedWords = shuffle(secWords);
+    const q = [];
+
+    // 4 SK->UK, 3 UK->SK, 2 Listening (or SK->UK), 1-2 Grammar, 1 Word Bank, 1 Typing = 12 strict questions
+    for (let i = 0; i < 4 && pickedWords[i]; i++) {
+      q.push({ type: 'mc_sk_uk', word: pickedWords[i], pool: secWords });
     }
-    const lesson = ALL_LESSONS.find((l) => l.id === lessonId) || null;
-    const queue = customQueue || buildLessonQueue(lesson);
+    for (let i = 4; i < 7 && pickedWords[i]; i++) {
+      q.push({ type: 'mc_uk_sk', word: pickedWords[i], pool: secWords });
+    }
+    for (let i = 7; i < 9 && pickedWords[i]; i++) {
+      q.push({ type: SpeechEngine.supported ? 'listen_mc' : 'mc_sk_uk', word: pickedWords[i], pool: secWords });
+    }
+    if (secGrams.length > 0) {
+      shuffle(secGrams).slice(0, 1).forEach((g) => q.push({ type: 'grammar', gram: g }));
+    } else if (pickedWords[9]) {
+      q.push({ type: 'mc_uk_sk', word: pickedWords[9], pool: secWords });
+    }
+    if (secSents.length > 0) {
+      q.push({ type: 'word_bank', sentence: shuffle(secSents)[0], lessonWords: secWords });
+    }
+    if (pickedWords[10]) {
+      q.push({ type: 'typing', word: pickedWords[10] });
+    }
+    return shuffle(q);
+  }
 
-    activeLesson = {
-      id: lesson ? lesson.id : 'custom',
-      title: customTitle || (lesson ? `Урок ${lesson.code}: ${lesson.title}` : 'Тренування'),
-      isOfficial: !!lesson && !customQueue,
-      queue,
-      initialTotal: queue.length,
-      idx: 0,
-      mistakes: 0,
-      xpEarned: 0,
-      selection: null,
-      checked: false
-    };
-
+  function openOverlayUI(isExam) {
     const overlay = document.getElementById('lesson-overlay');
     overlay.classList.remove('hidden');
     overlay.setAttribute('aria-hidden', 'false');
+    document.getElementById('btn-hearts-lesson').classList.toggle('hidden', isExam);
+    const ep = document.getElementById('exam-err-pill');
+    ep.classList.toggle('hidden', !isExam);
+    if (isExam) {
+      ep.classList.remove('danger');
+      document.getElementById('exam-err-val').textContent = '0/1';
+    }
     updateHeader();
-    renderCurrentExercise();
   }
 
-  function exitLesson() {
+  function exitOverlay() {
     MicEngine.stop();
-    try { window.speechSynthesis && window.speechSynthesis.cancel(); } catch {}
+    SpeechEngine.cancel();
     hideFeedback();
     const overlay = document.getElementById('lesson-overlay');
     overlay.classList.add('hidden');
     overlay.setAttribute('aria-hidden', 'true');
-    activeLesson = null;
+    activeSession = null;
+    activeStory = null;
     if (activeTab === 'course') renderCourseTab();
     else if (activeTab === 'review') renderReviewTab();
   }
 
-  document.getElementById('lesson-close').onclick = exitLesson;
+  document.getElementById('lesson-close').onclick = exitOverlay;
 
-  function updateLessonProgress() {
-    if (!activeLesson) return;
-    const pct = Math.min(100, Math.round((activeLesson.idx / activeLesson.queue.length) * 100));
-    document.getElementById('lesson-progress-fill').style.width = pct + '%';
+  function startLesson(lessonId) {
+    if (!state.infiniteHearts && state.hearts <= 0) {
+      openHeartsModal(true);
+      return;
+    }
+    const lesson = ALL_LESSONS.find((l) => l.id === lessonId);
+    if (!lesson) return;
+    activeStory = null;
+    activeSession = {
+      mode: 'lesson',
+      id: lesson.id,
+      title: `Урок ${lesson.code}: ${lesson.title}`,
+      queue: buildLessonQueue(lesson),
+      idx: 0,
+      mistakes: 0,
+      missedWords: [],
+      xpEarned: 0,
+      selection: null,
+      checked: false
+    };
+    openOverlayUI(false);
+    renderCurrentExercise();
   }
 
-  function showFeedback(isOk, title, sub, audioText = '', isWarning = false) {
+  function startSectionExam(sec) {
+    openModal(`
+      <h3>🎓 Екзамен розділу</h3>
+      <p style="font-weight:800;margin-bottom:6px;">${escHtml(sec.title)}</p>
+      <p class="muted" style="font-size:14px;margin-bottom:14px;">
+        12 запитань по всіх словах і граматиці розділу.<br/>
+        <strong>Правило:</strong> допускається максимум <strong>1 помилка</strong>. Зробиш 2 — потрібно буде повторити тему і перездати, щоб відкрити наступний розділ.
+      </p>
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        <button class="btn btn-orange btn-full" id="m-start-exam">ПОЧАТИ ЕКЗАМЕН</button>
+        <button class="btn btn-outline btn-full" id="m-cancel-exam">Повторити ще трохи</button>
+      </div>
+    `);
+    document.getElementById('m-cancel-exam').onclick = closeModal;
+    document.getElementById('m-start-exam').onclick = () => {
+      closeModal();
+      activeStory = null;
+      activeSession = {
+        mode: 'exam',
+        section: sec,
+        id: sec.id,
+        title: `Екзамен: ${sec.title}`,
+        queue: buildExamQueue(sec),
+        idx: 0,
+        mistakes: 0,
+        maxMistakes: 1,
+        missedWords: [],
+        xpEarned: 0,
+        selection: null,
+        checked: false
+      };
+      openOverlayUI(true);
+      renderCurrentExercise();
+    };
+  }
+
+  function startCustomDrill(queue, title, mode = 'custom') {
+    if (!state.infiniteHearts && state.hearts <= 0) {
+      openHeartsModal(true);
+      return;
+    }
+    activeStory = null;
+    activeSession = {
+      mode,
+      id: mode,
+      title,
+      queue,
+      idx: 0,
+      mistakes: 0,
+      missedWords: [],
+      xpEarned: 0,
+      selection: null,
+      checked: false
+    };
+    openOverlayUI(false);
+    renderCurrentExercise();
+  }
+
+  function updateSessionProgress() {
+    if (!activeSession) return;
+    const pct = Math.min(100, Math.round((activeSession.idx / activeSession.queue.length) * 100));
+    document.getElementById('lesson-progress-fill').style.width = pct + '%';
+    if (activeSession.mode === 'exam') {
+      const ep = document.getElementById('exam-err-pill');
+      document.getElementById('exam-err-val').textContent = `${activeSession.mistakes}/${activeSession.maxMistakes}`;
+      ep.classList.toggle('danger', activeSession.mistakes >= 1);
+    }
+  }
+
+  function showFeedback(isOk, title, sub, audioText = '') {
     const sheet = document.getElementById('feedback-sheet');
     const icon = document.getElementById('feedback-icon');
     const titleEl = document.getElementById('feedback-title');
@@ -681,7 +1152,9 @@
     titleEl.textContent = title;
     subEl.innerHTML = sub || '';
     nextBtn.className = 'btn btn-full ' + (isOk ? 'btn-primary' : 'btn-danger');
-    nextBtn.textContent = 'ДАЛІ';
+    nextBtn.textContent = (activeSession && activeSession.mode === 'exam' && activeSession.mistakes > activeSession.maxMistakes)
+      ? 'ЗАВЕРШИТИ ЕКЗАМЕН'
+      : 'ДАЛІ';
 
     if (audioText && SpeechEngine.supported) {
       audioBtn.classList.remove('hidden');
@@ -689,7 +1162,6 @@
     } else {
       audioBtn.classList.add('hidden');
     }
-
     requestAnimationFrame(() => sheet.classList.add('show'));
   }
 
@@ -699,55 +1171,78 @@
 
   document.getElementById('feedback-next-btn').onclick = () => {
     hideFeedback();
-    if (!activeLesson) return;
-    if (!state.infiniteHearts && state.hearts <= 0) {
+    if (!activeSession) return;
+
+    // Strict exam failure check (>1 mistake)
+    if (activeSession.mode === 'exam' && activeSession.mistakes > activeSession.maxMistakes) {
+      finishExamFailed();
+      return;
+    }
+
+    if (activeSession.mode !== 'exam' && !state.infiniteHearts && state.hearts <= 0) {
       openHeartsModal(true);
       return;
     }
-    activeLesson.idx += 1;
-    if (activeLesson.idx >= activeLesson.queue.length) {
-      finishLesson();
+
+    activeSession.idx += 1;
+    if (activeSession.idx >= activeSession.queue.length) {
+      finishSession();
     } else {
       renderCurrentExercise();
     }
   };
 
+  function recordCorrect(wordId) {
+    srsMarkCorrect(wordId, activeSession && activeSession.mode === 'srs');
+    saveState();
+  }
+
   function recordMistake(ex) {
-    activeLesson.mistakes += 1;
+    activeSession.mistakes += 1;
+    if (ex.word && ex.word.id) {
+      srsMarkWrong(ex.word.id);
+      if (!activeSession.missedWords.some((w) => w.id === ex.word.id)) {
+        activeSession.missedWords.push(ex.word);
+      }
+    }
+    if (activeSession.mode === 'exam') {
+      updateSessionProgress();
+      saveState();
+      return; // No re-queue in exams!
+    }
     if (!state.infiniteHearts) {
       state.hearts = Math.max(0, state.hearts - 1);
-      saveState();
     }
-    if (ex.word && ex.word.id && !state.weakWords.includes(ex.word.id)) {
-      state.weakWords.push(ex.word.id);
-      saveState();
-    }
-    // Re-queue once at end for mastery
+    saveState();
     if (!ex._retried) {
-      activeLesson.queue.push({ ...ex, _retried: true });
+      activeSession.queue.push({ ...ex, _retried: true });
     }
   }
 
-  function markWordMastered(wordId) {
-    if (!wordId) return;
-    if (!state.knownWords.includes(wordId)) state.knownWords.push(wordId);
+  function examMistakeNote() {
+    if (!activeSession || activeSession.mode !== 'exam') return '';
+    if (activeSession.mistakes === 1) {
+      return '<br/><span style="color:var(--orange);font-weight:800;">⚠️ Помилка 1/1 — більше помилятися не можна!</span>';
+    }
+    return '<br/><span style="color:var(--red);font-weight:800;">❌ 2 помилки — екзамен не складено.</span>';
   }
 
   function renderCurrentExercise() {
-    if (!activeLesson) return;
+    if (!activeSession) return;
     MicEngine.stop();
     hideFeedback();
-    updateLessonProgress();
+    updateSessionProgress();
 
-    const ex = activeLesson.queue[activeLesson.idx];
+    const ex = activeSession.queue[activeSession.idx];
     const stage = document.getElementById('lesson-stage');
     const actionBtn = document.getElementById('lesson-action-btn');
     const footer = document.getElementById('lesson-footer');
     footer.classList.remove('hidden');
-    activeLesson.selection = null;
-    activeLesson.checked = false;
+    activeSession.selection = null;
+    activeSession.checked = false;
 
     const retryBadge = ex._retried ? `<span class="badge-warn" style="margin-bottom:8px;">🔁 Виправляємо помилку</span>` : '';
+    const examTag = activeSession.mode === 'exam' ? `<span class="badge-warn" style="margin-bottom:8px;">🎓 ЕКЗАМЕН • Питання ${activeSession.idx + 1}/${activeSession.queue.length}</span>` : '';
 
     // 1. INTRO CARD
     if (ex.type === 'intro') {
@@ -774,13 +1269,13 @@
       actionBtn.textContent = 'ЗАПАМ’ЯТАВ, ДАЛІ';
       actionBtn.onclick = () => {
         SoundFX.tap();
-        activeLesson.idx += 1;
+        activeSession.idx += 1;
         renderCurrentExercise();
       };
       return;
     }
 
-    // 2. MULTIPLE CHOICE (SK -> UK, UK -> SK, LISTEN -> UK)
+    // 2. MULTIPLE CHOICE (SK->UK, UK->SK, LISTEN)
     if (ex.type === 'mc_sk_uk' || ex.type === 'mc_uk_sk' || ex.type === 'listen_mc') {
       const w = ex.word;
       const dist = pickDistractors(w, ex.pool || ALL_WORDS, 3);
@@ -802,11 +1297,7 @@
         `;
       } else if (ex.type === 'mc_uk_sk') {
         title = 'Як це буде словацькою?';
-        promptHtml = `
-          <div class="prompt-box">
-            <div class="prompt-main">${escHtml(w.uk)}</div>
-          </div>
-        `;
+        promptHtml = `<div class="prompt-box"><div class="prompt-main">${escHtml(w.uk)}</div></div>`;
       } else {
         kicker = 'АУДІЮВАННЯ';
         title = 'Послухай і обери переклад';
@@ -816,19 +1307,18 @@
               <button class="audio-btn" id="prompt-audio">🔊 Слухати</button>
               <button class="audio-btn slow" id="prompt-slow">🐢 Повільно</button>
             </div>
-            <div class="muted" style="margin-top:10px;">Не чути? Натисни ще раз або перевір озвучку в налаштуваннях</div>
           </div>
         `;
       }
 
       stage.innerHTML = `
-        ${retryBadge}
+        ${examTag}${retryBadge}
         <div class="ex-kicker">${kicker}</div>
         <div class="ex-title">${title}</div>
         ${promptHtml}
-        <div class="options-list" id="mc-options">
+        <div class="options-list">
           ${opts.map((o, i) => `
-            <button class="option-btn" data-id="${o.id}" data-idx="${i}">
+            <button class="option-btn" data-id="${o.id}">
               <div>
                 <div>${escHtml(ex.type === 'mc_uk_sk' ? o.sk : o.uk)}</div>
                 ${ex.type === 'mc_uk_sk' ? `<span class="opt-tr">[${escHtml(o.tr)}]</span>` : ''}
@@ -852,11 +1342,11 @@
 
       stage.querySelectorAll('.option-btn').forEach((btn) => {
         btn.onclick = () => {
-          if (activeLesson.checked) return;
+          if (activeSession.checked) return;
           SoundFX.tap();
           stage.querySelectorAll('.option-btn').forEach((b) => b.classList.remove('selected'));
           btn.classList.add('selected');
-          activeLesson.selection = btn.dataset.id;
+          activeSession.selection = btn.dataset.id;
           if (ex.type === 'mc_uk_sk' && SpeechEngine.supported) {
             const chosenObj = opts.find((o) => o.id === btn.dataset.id);
             if (chosenObj) SpeechEngine.speak(chosenObj.sk, false);
@@ -866,28 +1356,91 @@
       });
 
       actionBtn.onclick = () => {
-        if (!activeLesson.selection || activeLesson.checked) return;
-        activeLesson.checked = true;
-        const ok = activeLesson.selection === w.id;
+        if (!activeSession.selection || activeSession.checked) return;
+        activeSession.checked = true;
+        const ok = activeSession.selection === w.id;
         stage.querySelectorAll('.option-btn').forEach((b) => {
           if (b.dataset.id === w.id) b.classList.add('correct');
-          else if (b.dataset.id === activeLesson.selection && !ok) b.classList.add('wrong');
+          else if (b.dataset.id === activeSession.selection && !ok) b.classList.add('wrong');
         });
         if (ok) {
           SoundFX.ok();
-          activeLesson.xpEarned += 5;
-          markWordMastered(w.id);
+          activeSession.xpEarned += 5;
+          recordCorrect(w.id);
           showFeedback(true, 'Чудово!', `${escHtml(w.sk)} [${escHtml(w.tr)}] — ${escHtml(w.uk)}`, w.sk);
         } else {
           SoundFX.bad();
           recordMistake(ex);
-          showFeedback(false, 'Правильна відповідь:', `<strong>${escHtml(w.sk)}</strong> [${escHtml(w.tr)}] = ${escHtml(w.uk)}`, w.sk);
+          showFeedback(false, 'Правильна відповідь:', `<strong>${escHtml(w.sk)}</strong> [${escHtml(w.tr)}] = ${escHtml(w.uk)}${examMistakeNote()}`, w.sk);
         }
       };
       return;
     }
 
-    // 3. MATCH PAIRS (All 6 words)
+    // 3. GRAMMAR FILL-IN-THE-BLANK
+    if (ex.type === 'grammar') {
+      const g = ex.gram;
+      const opts = shuffle(g.options);
+      const fullSent = `${g.before} ${g.answer} ${g.after}`.replace(/\s+([.,!?])/g, '$1').trim();
+
+      stage.innerHTML = `
+        ${examTag}${retryBadge}
+        <div class="ex-kicker grammar">🧩 ГРАМАТИКА</div>
+        <div class="ex-title">Підстав правильне слово</div>
+        <div class="card" style="padding:18px;margin-bottom:16px;">
+          <div class="gram-sentence">
+            ${escHtml(g.before)} <span class="gram-blank" id="gram-blank-val">___</span> ${escHtml(g.after)}
+          </div>
+          <div class="muted" style="margin-top:8px;font-size:14px;">🇺🇦 ${escHtml(g.uk)}</div>
+        </div>
+        <div class="options-list">
+          ${opts.map((o, i) => `
+            <button class="option-btn" data-val="${escHtml(o)}">
+              <span>${escHtml(o)}</span>
+              <span class="muted">${i + 1}</span>
+            </button>
+          `).join('')}
+        </div>
+      `;
+
+      actionBtn.disabled = true;
+      actionBtn.textContent = 'ПЕРЕВІРИТИ';
+
+      stage.querySelectorAll('.option-btn').forEach((btn) => {
+        btn.onclick = () => {
+          if (activeSession.checked) return;
+          SoundFX.tap();
+          stage.querySelectorAll('.option-btn').forEach((b) => b.classList.remove('selected'));
+          btn.classList.add('selected');
+          activeSession.selection = btn.dataset.val;
+          document.getElementById('gram-blank-val').textContent = btn.dataset.val;
+          actionBtn.disabled = false;
+        };
+      });
+
+      actionBtn.onclick = () => {
+        if (!activeSession.selection || activeSession.checked) return;
+        activeSession.checked = true;
+        const ok = activeSession.selection === g.answer;
+        stage.querySelectorAll('.option-btn').forEach((b) => {
+          if (b.dataset.val === g.answer) b.classList.add('correct');
+          else if (b.dataset.val === activeSession.selection && !ok) b.classList.add('wrong');
+        });
+        document.getElementById('gram-blank-val').textContent = g.answer;
+        if (ok) {
+          SoundFX.ok();
+          activeSession.xpEarned += 7;
+          showFeedback(true, 'Точно!', `<strong>${escHtml(fullSent)}</strong><br/>${escHtml(g.explain)}`, fullSent);
+        } else {
+          SoundFX.bad();
+          recordMistake(ex);
+          showFeedback(false, 'Правильний варіант:', `<strong>${escHtml(fullSent)}</strong><br/>${escHtml(g.explain)}${examMistakeNote()}`, fullSent);
+        }
+      };
+      return;
+    }
+
+    // 4. MATCH PAIRS
     if (ex.type === 'match_pairs') {
       footer.classList.add('hidden');
       const left = shuffle(ex.words);
@@ -919,12 +1472,12 @@
           rEl.classList.remove('selected');
           lEl.classList.add('matched');
           rEl.classList.add('matched');
-          markWordMastered(lEl.dataset.id);
+          recordCorrect(lEl.dataset.id);
           matchedCount += 1;
           selLeft = null;
           selRight = null;
           if (matchedCount === ex.words.length) {
-            activeLesson.xpEarned += 10;
+            activeSession.xpEarned += 10;
             showFeedback(true, 'Чудова робота!', 'Усі 6 пар знайдено!');
           }
         } else {
@@ -961,7 +1514,7 @@
       return;
     }
 
-    // 4. WORD BANK (Sentence assembly from learned words)
+    // 5. WORD BANK
     if (ex.type === 'word_bank') {
       const s = ex.sentence;
       const tokens = s.sk.replace(/[.,!?]/g, '').split(/\s+/).filter(Boolean);
@@ -970,26 +1523,26 @@
           .map((w) => w.sk.split(/\s+/)[0].replace(/[.,!?]/g, ''))
           .filter((t) => !tokens.some((x) => normLoose(x) === normLoose(t)))
       ).slice(0, 3);
-
       const bankItems = shuffle([...tokens, ...distractors]).map((txt, i) => ({ id: i, txt }));
       let picked = [];
 
       stage.innerHTML = `
-        ${retryBadge}
+        ${examTag}${retryBadge}
         <div class="ex-kicker">ЗБЕРИ РЕЧЕННЯ</div>
         <div class="ex-title">Склади фразу словацькою</div>
         <div class="prompt-box">
           <div>
             <div class="prompt-main">${escHtml(s.uk)}</div>
-            <div class="muted" style="margin-top:4px;">Збери зі знайомих слів нижче</div>
+            <div class="muted" style="margin-top:4px;">Збери зі слів нижче</div>
           </div>
-          <button class="audio-mini-btn" id="wb-hint-audio" title="Підказка аудіо">🔊</button>
+          ${activeSession.mode === 'exam' ? '' : '<button class="audio-mini-btn" id="wb-hint-audio" title="Підказка аудіо">🔊</button>'}
         </div>
         <div class="answer-zone" id="wb-answer"></div>
         <div class="bank-zone" id="wb-bank"></div>
       `;
 
-      document.getElementById('wb-hint-audio').onclick = () => SpeechEngine.speak(s.sk, true);
+      const ha = document.getElementById('wb-hint-audio');
+      if (ha) ha.onclick = () => SpeechEngine.speak(s.sk, true);
 
       function renderBank() {
         const ansEl = document.getElementById('wb-answer');
@@ -1005,7 +1558,7 @@
 
         ansEl.querySelectorAll('.word-chip').forEach((btn) => {
           btn.onclick = () => {
-            if (activeLesson.checked) return;
+            if (activeSession.checked) return;
             SoundFX.tap();
             picked = picked.filter((p) => p.id !== Number(btn.dataset.id));
             renderBank();
@@ -1013,7 +1566,7 @@
         });
         bankEl.querySelectorAll('.word-chip').forEach((btn) => {
           btn.onclick = () => {
-            if (activeLesson.checked) return;
+            if (activeSession.checked) return;
             SoundFX.tap();
             const item = bankItems.find((b) => b.id === Number(btn.dataset.id));
             if (item && !picked.some((p) => p.id === item.id)) {
@@ -1028,36 +1581,36 @@
       renderBank();
       actionBtn.textContent = 'ПЕРЕВІРИТИ';
       actionBtn.onclick = () => {
-        if (activeLesson.checked || picked.length === 0) return;
-        activeLesson.checked = true;
+        if (activeSession.checked || picked.length === 0) return;
+        activeSession.checked = true;
         const userStr = picked.map((p) => p.txt).join(' ');
         const ok = normLoose(userStr) === normLoose(s.sk);
         if (ok) {
           SoundFX.ok();
-          activeLesson.xpEarned += 8;
+          activeSession.xpEarned += 8;
           showFeedback(true, 'Відмінно!', `${escHtml(s.sk)} [${escHtml(s.tr)}]`, s.sk);
         } else {
           SoundFX.bad();
           recordMistake(ex);
-          showFeedback(false, 'Правильний варіант:', `<strong>${escHtml(s.sk)}</strong><br/>[${escHtml(s.tr)}]`, s.sk);
+          showFeedback(false, 'Правильний варіант:', `<strong>${escHtml(s.sk)}</strong><br/>[${escHtml(s.tr)}]${examMistakeNote()}`, s.sk);
         }
       };
       return;
     }
 
-    // 5. TYPING WITH DIACRITICS BAR
+    // 6. TYPING
     if (ex.type === 'typing') {
       const w = ex.word;
       stage.innerHTML = `
-        ${retryBadge}
+        ${examTag}${retryBadge}
         <div class="ex-kicker">ПИСЬМО</div>
         <div class="ex-title">Напиши словацькою</div>
         <div class="prompt-box">
           <div>
             <div class="prompt-main">${escHtml(w.uk)}</div>
-            <div class="muted" style="margin-top:4px;">Вимова: [${escHtml(w.tr)}]</div>
+            ${activeSession.mode === 'exam' ? '' : `<div class="muted" style="margin-top:4px;">Вимова: [${escHtml(w.tr)}]</div>`}
           </div>
-          <button class="audio-mini-btn" id="type-audio" title="Послухати">🔊</button>
+          ${activeSession.mode === 'exam' ? '' : '<button class="audio-mini-btn" id="type-audio" title="Послухати">🔊</button>'}
         </div>
         <input type="text" class="text-input" id="type-input" placeholder="Введи слово..." autocomplete="off" autocorrect="off" spellcheck="false" />
         <div class="diacritic-bar" id="dia-bar">
@@ -1066,7 +1619,8 @@
       `;
 
       const inp = document.getElementById('type-input');
-      document.getElementById('type-audio').onclick = () => SpeechEngine.speak(w.sk, true);
+      const ta = document.getElementById('type-audio');
+      if (ta) ta.onclick = () => SpeechEngine.speak(w.sk, true);
 
       document.getElementById('dia-bar').querySelectorAll('.dia-key').forEach((k) => {
         k.onclick = () => {
@@ -1082,44 +1636,39 @@
 
       actionBtn.disabled = true;
       actionBtn.textContent = 'ПЕРЕВІРИТИ';
-      inp.addEventListener('input', () => {
-        actionBtn.disabled = inp.value.trim().length === 0;
-      });
-      inp.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' && !actionBtn.disabled) actionBtn.click();
-      });
+      inp.addEventListener('input', () => { actionBtn.disabled = inp.value.trim().length === 0; });
+      inp.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !actionBtn.disabled) actionBtn.click(); });
 
       actionBtn.onclick = () => {
-        if (activeLesson.checked) return;
-        activeLesson.checked = true;
+        if (activeSession.checked) return;
+        activeSession.checked = true;
         const val = inp.value.trim();
         const exact = normStrict(val) === normStrict(w.sk);
         const loose = normLoose(val) === normLoose(w.sk);
 
         if (exact) {
           SoundFX.ok();
-          activeLesson.xpEarned += 10;
-          markWordMastered(w.id);
+          activeSession.xpEarned += 10;
+          recordCorrect(w.id);
           showFeedback(true, 'Ідеально!', `${escHtml(w.sk)} [${escHtml(w.tr)}]`, w.sk);
         } else if (loose) {
           SoundFX.ok();
-          activeLesson.xpEarned += 8;
-          markWordMastered(w.id);
-          showFeedback(true, 'Майже ідеально! (Зараховано)', `Зверни увагу на діакритику: <strong>${escHtml(w.sk)}</strong>`, w.sk);
+          activeSession.xpEarned += 8;
+          recordCorrect(w.id);
+          showFeedback(true, 'Зараховано!', `Зверни увагу на діакритику: <strong>${escHtml(w.sk)}</strong>`, w.sk);
         } else {
           SoundFX.bad();
           recordMistake(ex);
-          showFeedback(false, 'Правильне написання:', `<strong>${escHtml(w.sk)}</strong> [${escHtml(w.tr)}]`, w.sk);
+          showFeedback(false, 'Правильне написання:', `<strong>${escHtml(w.sk)}</strong> [${escHtml(w.tr)}]${examMistakeNote()}`, w.sk);
         }
       };
       return;
     }
 
-    // 6. SPEAKING CHECK (Microphone sk-SK)
+    // 7. SPEAKING (Microphone)
     if (ex.type === 'speak') {
       const s = ex.sentence;
       let isRec = false;
-
       stage.innerHTML = `
         ${retryBadge}
         <div class="ex-kicker">ВИМОВА (МІКРОФОН)</div>
@@ -1137,25 +1686,20 @@
           <button class="btn btn-outline btn-sm" id="sp-skip" style="margin-top:14px;">Не можу зараз говорити (пропустити)</button>
         </div>
       `;
-
       footer.classList.add('hidden');
       document.getElementById('sp-listen').onclick = () => SpeechEngine.speak(s.sk, true);
       document.getElementById('sp-skip').onclick = () => {
         MicEngine.stop();
-        activeLesson.idx += 1;
-        if (activeLesson.idx >= activeLesson.queue.length) finishLesson();
+        activeSession.idx += 1;
+        if (activeSession.idx >= activeSession.queue.length) finishSession();
         else renderCurrentExercise();
       };
 
       const micBtn = document.getElementById('sp-mic-btn');
       const statusEl = document.getElementById('sp-status');
       const heardEl = document.getElementById('sp-heard');
-
       micBtn.onclick = () => {
-        if (isRec) {
-          MicEngine.stop();
-          return;
-        }
+        if (isRec) { MicEngine.stop(); return; }
         isRec = true;
         micBtn.classList.add('recording');
         statusEl.textContent = 'Слухаю... Говори словацькою!';
@@ -1172,45 +1716,104 @@
               const ratio = targetWords.length ? hits / targetWords.length : 0;
               if (ratio > bestRatio) bestRatio = ratio;
             });
-
             if (bestRatio >= 0.65) {
               SoundFX.ok();
-              activeLesson.xpEarned += 10;
+              activeSession.xpEarned += 10;
               showFeedback(true, 'Чудова вимова!', `Ти сказав: «${escHtml(transcript)}»`, s.sk);
             } else {
               SoundFX.bad();
               statusEl.textContent = 'Спробуй ще раз чіткіше (наголос на 1-й склад) або пропусти.';
             }
           },
-          (errMsg) => {
-            statusEl.textContent = errMsg;
-          },
-          () => {
-            isRec = false;
-            micBtn.classList.remove('recording');
-          }
+          (errMsg) => { statusEl.textContent = errMsg; },
+          () => { isRec = false; micBtn.classList.remove('recording'); }
         );
       };
     }
   }
 
-  function finishLesson() {
-    SoundFX.win();
-    const xp = Math.max(15, activeLesson.xpEarned);
-    addXP(xp);
-    if (activeLesson.isOfficial && !state.completedLessons.includes(activeLesson.id)) {
-      state.completedLessons.push(activeLesson.id);
-      saveState();
-    }
-
-    const totalChecks = Math.max(1, activeLesson.queue.length);
-    const acc = Math.max(50, Math.round(((totalChecks - activeLesson.mistakes) / totalChecks) * 100));
+  function finishExamFailed() {
+    SoundFX.bad();
+    const sec = activeSession.section;
+    const missedHtml = activeSession.missedWords.length
+      ? `<div class="card" style="text-align:left;margin-bottom:14px;">
+          <div style="font-weight:800;margin-bottom:6px;">Додано у слабкі слова:</div>
+          ${activeSession.missedWords.map((w) => `<div class="muted">• <strong>${escHtml(w.sk)}</strong> — ${escHtml(w.uk)}</div>`).join('')}
+        </div>`
+      : '';
 
     openModal(`
       <div style="text-align:center;">
-        <div style="font-size:56px;margin-bottom:6px;">🏆</div>
-        <h3>Урок завершено!</h3>
-        <p class="muted" style="margin-bottom:16px;">${escHtml(activeLesson.title)}</p>
+        <div style="font-size:52px;margin-bottom:6px;">📝</div>
+        <h3 style="color:var(--red);">Екзамен не складено</h3>
+        <p class="muted" style="margin-bottom:14px;">Зроблено 2 помилки (дозволено максимум 1). Повтори слова й спробуй ще раз — наступний розділ відкриється після складання!</p>
+        ${missedHtml}
+        <div style="display:flex;flex-direction:column;gap:9px;">
+          <button class="btn btn-orange btn-full" id="m-exam-retry">🔁 Перездати екзамен</button>
+          <button class="btn btn-outline btn-full" id="m-exam-exit">Повернутися до курсу</button>
+        </div>
+      </div>
+    `, false);
+
+    document.getElementById('m-exam-retry').onclick = () => {
+      closeModal();
+      activeSession = {
+        mode: 'exam',
+        section: sec,
+        id: sec.id,
+        title: `Екзамен: ${sec.title}`,
+        queue: buildExamQueue(sec),
+        idx: 0,
+        mistakes: 0,
+        maxMistakes: 1,
+        missedWords: [],
+        xpEarned: 0,
+        selection: null,
+        checked: false
+      };
+      openOverlayUI(true);
+      renderCurrentExercise();
+    };
+    document.getElementById('m-exam-exit').onclick = () => {
+      closeModal();
+      exitOverlay();
+    };
+  }
+
+  function finishSession() {
+    SoundFX.win();
+    const isExam = activeSession.mode === 'exam';
+    const xp = isExam ? 30 : Math.max(15, activeSession.xpEarned);
+    addXP(xp);
+
+    if (activeSession.mode === 'lesson' && !state.completedLessons.includes(activeSession.id)) {
+      state.completedLessons.push(activeSession.id);
+      saveState();
+    }
+    if (isExam) {
+      if (!state.passedExams.includes(activeSession.id)) {
+        state.passedExams.push(activeSession.id);
+        // Auto-collapse passed section and auto-expand next section!
+        expandedSections[activeSession.id] = false;
+        const idx = SECTIONS.findIndex((s) => s.id === activeSession.id);
+        if (idx >= 0 && SECTIONS[idx + 1]) expandedSections[SECTIONS[idx + 1].id] = true;
+        saveState();
+      }
+    }
+
+    const totalChecks = Math.max(1, activeSession.queue.length);
+    const acc = Math.max(50, Math.round(((totalChecks - activeSession.mistakes) / totalChecks) * 100));
+
+    openModal(`
+      <div style="text-align:center;">
+        <div style="font-size:56px;margin-bottom:6px;">${isExam ? '🎓' : '🏆'}</div>
+        <h3>${isExam ? 'Екзамен складено!' : 'Урок завершено!'}</h3>
+        <p class="muted" style="margin-bottom:14px;">
+          ${isExam
+            ? `Помилок: ${activeSession.mistakes}/1. Наступний розділ відкрито!`
+            : escHtml(activeSession.title)
+          }
+        </p>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:18px;">
           <div class="card" style="margin:0;padding:12px;">
             <div class="muted">Отримано</div>
@@ -1227,120 +1830,495 @@
 
     document.getElementById('m-finish-ok').onclick = () => {
       closeModal();
-      exitLesson();
+      exitOverlay();
     };
   }
 
   // =====================================================
-  // TAB 2: REVIEW & 3D FLASHCARDS
+  // MINI-DIALOGUE STORY PLAYER
+  // =====================================================
+  let activeStory = null;
+
+  function startStory(sec) {
+    activeSession = null;
+    activeStory = {
+      sec,
+      story: sec.story,
+      step: 0, // revealed index up to step inclusive
+      translationsOpen: {},
+      answeredQuestions: {} // stepIdx -> true
+    };
+    openOverlayUI(false);
+    document.getElementById('btn-hearts-lesson').classList.add('hidden');
+    renderStory();
+  }
+
+  function renderStory() {
+    if (!activeStory) return;
+    const lines = activeStory.story.lines;
+    const stage = document.getElementById('lesson-stage');
+    const actionBtn = document.getElementById('lesson-action-btn');
+    const footer = document.getElementById('lesson-footer');
+    footer.classList.remove('hidden');
+
+    const pct = Math.min(100, Math.round(((activeStory.step + 1) / lines.length) * 100));
+    document.getElementById('lesson-progress-fill').style.width = pct + '%';
+
+    let html = `
+      <div class="ex-kicker new-word">💬 МІНІ-ДІАЛОГ</div>
+      <div class="ex-title">${escHtml(activeStory.story.title)}</div>
+      <div class="story-feed" id="story-feed">
+    `;
+
+    for (let i = 0; i <= activeStory.step && i < lines.length; i++) {
+      const item = lines[i];
+      if (item.type === 'question') {
+        const doneQ = !!activeStory.answeredQuestions[i];
+        html += `
+          <div class="story-q-card">
+            <div style="font-weight:900;margin-bottom:10px;">❓ ${escHtml(item.prompt)}</div>
+            <div class="options-list">
+              ${item.options.map((opt, oi) => `
+                <button class="option-btn ${doneQ && oi === item.answer ? 'correct' : ''}" data-sq="${i}" data-oi="${oi}" ${doneQ ? 'disabled' : ''}>
+                  <span>${escHtml(opt)}</span>
+                </button>
+              `).join('')}
+            </div>
+          </div>
+        `;
+      } else {
+        const showUk = !!activeStory.translationsOpen[i];
+        html += `
+          <div class="story-bubble side-${item.side || 'l'}">
+            <div class="story-speaker">${escHtml(item.speaker)}</div>
+            <div style="font-size:16px;font-weight:800;">${escHtml(item.sk)}</div>
+            <div class="msg-actions">
+              <button class="msg-mini-btn" data-st-say="${i}">🔊 Слухати</button>
+              <button class="msg-mini-btn" data-st-slow="${i}">🐢 Повільно</button>
+              <button class="msg-mini-btn" data-st-uk="${i}">${showUk ? 'Сховати' : '🇺🇦 Переклад'}</button>
+            </div>
+            ${showUk ? `<div class="msg-translation">${escHtml(item.uk)}</div>` : ''}
+          </div>
+        `;
+      }
+    }
+    html += `</div>`;
+    stage.innerHTML = html;
+
+    // Auto-speak newly revealed dialogue line
+    const curItem = lines[activeStory.step];
+    if (curItem && curItem.type !== 'question' && !curItem._spokenOnce) {
+      curItem._spokenOnce = true;
+      if (state.autoSpeak && SpeechEngine.supported) SpeechEngine.speak(curItem.sk, false);
+    }
+
+    stage.querySelectorAll('[data-st-say]').forEach((b) => {
+      b.onclick = () => SpeechEngine.speak(lines[Number(b.dataset.stSay)].sk, false);
+    });
+    stage.querySelectorAll('[data-st-slow]').forEach((b) => {
+      b.onclick = () => SpeechEngine.speak(lines[Number(b.dataset.stSlow)].sk, true);
+    });
+    stage.querySelectorAll('[data-st-uk]').forEach((b) => {
+      b.onclick = () => {
+        const idx = Number(b.dataset.stUk);
+        activeStory.translationsOpen[idx] = !activeStory.translationsOpen[idx];
+        renderStory();
+      };
+    });
+
+    stage.querySelectorAll('[data-sq]').forEach((b) => {
+      b.onclick = () => {
+        const qIdx = Number(b.dataset.sq);
+        const oi = Number(b.dataset.oi);
+        if (oi === lines[qIdx].answer) {
+          SoundFX.ok();
+          activeStory.answeredQuestions[qIdx] = true;
+          renderStory();
+        } else {
+          SoundFX.bad();
+          b.classList.add('wrong');
+          showToast('Не зовсім, спробуй інший варіант!');
+        }
+      };
+    });
+
+    const bodyEl = document.getElementById('lesson-stage');
+    bodyEl.scrollTop = bodyEl.scrollHeight;
+
+    const waitingQuestion = curItem && curItem.type === 'question' && !activeStory.answeredQuestions[activeStory.step];
+    actionBtn.disabled = waitingQuestion;
+    const isLast = activeStory.step >= lines.length - 1;
+    actionBtn.textContent = isLast ? 'ЗАВЕРШИТИ ДІАЛОГ (+15 XP)' : 'ДАЛІ';
+
+    actionBtn.onclick = () => {
+      if (waitingQuestion) return;
+      SoundFX.tap();
+      if (isLast) {
+        SoundFX.win();
+        addXP(15);
+        if (!state.completedStories.includes(activeStory.story.id)) {
+          state.completedStories.push(activeStory.story.id);
+          saveState();
+        }
+        lines.forEach((l) => { delete l._spokenOnce; });
+        openModal(`
+          <div style="text-align:center;">
+            <div style="font-size:52px;margin-bottom:6px;">💬</div>
+            <h3>Діалог пройдено!</h3>
+            <p class="muted" style="margin-bottom:16px;">Ти розібрав реальну розмову і отримав <strong>+15 XP</strong>.</p>
+            <button class="btn btn-primary btn-full" id="m-st-done">ЧУДОВО</button>
+          </div>
+        `, false);
+        document.getElementById('m-st-done').onclick = () => { closeModal(); exitOverlay(); };
+      } else {
+        activeStory.step += 1;
+        renderStory();
+      }
+    };
+  }
+
+  // =====================================================
+  // TAB 2: REVIEW (SRS + 3D Flashcards + Hands-Free Headphones Audio)
   // =====================================================
   let fcFilter = 'unlocked';
   let fcIndex = 0;
   let fcFlipped = false;
 
+  // Hands-free Audio State
+  let audioDeckFilter = 'unlocked';
+  let audioPlaying = false;
+  let audioIdx = 0;
+  let audioPhase = 'idle'; // idle | sk | recall | uk
+  let audioTimer = null;
+  let wakeLockSentinel = null;
+
+  async function requestWakeLock() {
+    try {
+      if ('wakeLock' in navigator && !wakeLockSentinel) {
+        wakeLockSentinel = await navigator.wakeLock.request('screen');
+      }
+    } catch {}
+  }
+  function releaseWakeLock() {
+    if (wakeLockSentinel) {
+      wakeLockSentinel.release().catch(() => {});
+      wakeLockSentinel = null;
+    }
+  }
+
+  function stopAudioMode() {
+    audioPlaying = false;
+    audioPhase = 'idle';
+    clearTimeout(audioTimer);
+    SpeechEngine.cancel();
+    releaseWakeLock();
+  }
+
   function getUnlockedWords() {
     if (state.freeUnlock) return ALL_WORDS;
     const ids = new Set(state.completedLessons);
-    // Always include lesson 1.1
-    ids.add(ALL_LESSONS[0].id);
-    // Also include the next unlocked lesson
-    const nextIdx = ALL_LESSONS.findIndex((l) => !state.completedLessons.includes(l.id));
-    if (nextIdx >= 0) ids.add(ALL_LESSONS[nextIdx].id);
+    if (ALL_LESSONS[0]) ids.add(ALL_LESSONS[0].id);
+    const nextLes = ALL_LESSONS.find((l) => !state.completedLessons.includes(l.id));
+    if (nextLes) ids.add(nextLes.id);
     return ALL_WORDS.filter((w) => ids.has(w.lessonId));
   }
 
+  function getDeckByFilter(filterKey) {
+    const due = getDueSrsWords();
+    const weak = state.weakWords.map((id) => WORD_MAP[id]).filter(Boolean);
+    if (filterKey === 'due') return due;
+    if (filterKey === 'weak') return weak;
+    if (filterKey === 'all') return ALL_WORDS;
+    if (filterKey === 'unlocked') return getUnlockedWords();
+    return ALL_WORDS.filter((w) => w.sectionId === filterKey);
+  }
+
+  function runAudioLoop() {
+    if (!audioPlaying) return;
+    const deck = getDeckByFilter(audioDeckFilter);
+    if (deck.length === 0) {
+      stopAudioMode();
+      renderReviewTab();
+      return;
+    }
+    if (audioIdx >= deck.length) audioIdx = 0;
+    const w = deck[audioIdx];
+    audioPhase = 'sk';
+    updateAudioCardUI(w, deck.length);
+
+    SpeechEngine.speak(w.sk, state.audioSlow, () => {
+      if (!audioPlaying) return;
+      audioPhase = 'recall';
+      updateAudioCardUI(w, deck.length);
+
+      audioTimer = setTimeout(() => {
+        if (!audioPlaying) return;
+        audioPhase = 'uk';
+        updateAudioCardUI(w, deck.length);
+
+        const afterUk = () => {
+          if (!audioPlaying) return;
+          audioTimer = setTimeout(() => {
+            if (!audioPlaying) return;
+            audioIdx = (audioIdx + 1) % deck.length;
+            runAudioLoop();
+          }, 900);
+        };
+
+        if (state.audioSpeakUk) {
+          SpeechEngine.speakUk(w.uk, afterUk);
+        } else {
+          audioTimer = setTimeout(afterUk, 1800);
+        }
+      }, (state.audioPauseSec || 3) * 1000);
+    });
+  }
+
+  function updateAudioCardUI(w, total) {
+    const phaseEl = document.getElementById('am-phase');
+    const skEl = document.getElementById('am-sk');
+    const trEl = document.getElementById('am-tr');
+    const ukEl = document.getElementById('am-uk');
+    const cntEl = document.getElementById('am-count');
+    const playBtn = document.getElementById('am-play');
+    if (!phaseEl || !w) return;
+
+    cntEl.textContent = `${audioIdx + 1} / ${total}`;
+    skEl.textContent = w.sk;
+    trEl.textContent = `[${w.tr}]`;
+    ukEl.textContent = (audioPhase === 'uk' || audioPhase === 'idle') ? w.uk : '🤔 Згадай переклад...';
+    ukEl.style.opacity = (audioPhase === 'uk' || audioPhase === 'idle') ? '1' : '0.45';
+
+    phaseEl.className = 'audio-phase-pill';
+    if (audioPhase === 'sk') phaseEl.textContent = '🔊 Словацька...';
+    else if (audioPhase === 'recall') {
+      phaseEl.classList.add('recall');
+      phaseEl.textContent = `⏳ Пауза ${state.audioPauseSec} сек — згадуй!`;
+    } else if (audioPhase === 'uk') {
+      phaseEl.classList.add('answer');
+      phaseEl.textContent = '🇺🇦 Переклад';
+    } else {
+      phaseEl.textContent = '🎧 Готово до запуску';
+    }
+
+    if (playBtn) {
+      playBtn.classList.toggle('playing', audioPlaying);
+      playBtn.textContent = audioPlaying ? '⏸' : '▶';
+    }
+  }
+
   function renderReviewTab() {
+    const sub = state.reviewSubtab || 'srs';
+    const dueWords = getDueSrsWords();
     const weakList = state.weakWords.map((id) => WORD_MAP[id]).filter(Boolean);
     const unlockedWords = getUnlockedWords();
 
-    let deck = unlockedWords;
-    if (fcFilter === 'weak') deck = weakList;
-    else if (fcFilter === 'all') deck = ALL_WORDS;
-    else if (fcFilter.startsWith('sec')) deck = ALL_WORDS.filter((w) => w.sectionId === fcFilter);
+    let body = '';
 
-    if (fcIndex >= deck.length) fcIndex = 0;
-    const cardWord = deck[fcIndex] || null;
+    if (sub === 'srs') {
+      const boxCounts = [0, 0, 0, 0, 0]; // 0, 1d, 3d, 7d, 14d+
+      Object.values(state.srs).forEach((entry) => {
+        const b = Math.min(4, entry.box || 0);
+        boxCounts[b]++;
+      });
 
-    mainView.innerHTML = `
-      <div class="card">
-        <div class="row-between" style="margin-bottom:10px;">
-          <div>
-            <div style="font-weight:900;font-size:16px;">🎯 Слабкі слова (${weakList.length})</div>
-            <div class="muted">Слова, у яких були помилки під час уроків</div>
+      body = `
+        <div class="card">
+          <div class="row-between" style="margin-bottom:6px;">
+            <div>
+              <div style="font-weight:900;font-size:16px;">🧠 Розумне повторення (SRS)</div>
+              <div class="muted">Інтервали: 1д → 3д → 7д → 14д</div>
+            </div>
+            <span class="${dueWords.length > 0 ? 'badge-warn' : 'badge-ok'}">
+              ${dueWords.length > 0 ? `Сьогодні: ${dueWords.length}` : 'Усе повторено ✓'}
+            </span>
+          </div>
+          <div class="srs-grid">
+            <div class="srs-box"><div class="num" style="color:var(--red);">${boxCounts[0]}</div><div class="lbl">Сьогодні</div></div>
+            <div class="srs-box"><div class="num" style="color:var(--orange);">${boxCounts[1]}</div><div class="lbl">1 день</div></div>
+            <div class="srs-box"><div class="num" style="color:var(--blue);">${boxCounts[2]}</div><div class="lbl">3 дні</div></div>
+            <div class="srs-box"><div class="num" style="color:var(--purple);">${boxCounts[3]}</div><div class="lbl">7 днів</div></div>
+            <div class="srs-box"><div class="num" style="color:var(--green);">${boxCounts[4]}</div><div class="lbl">14д+</div></div>
+          </div>
+          <button class="btn btn-primary btn-full" id="rev-srs-btn" ${dueWords.length === 0 ? 'disabled' : ''}>
+            🧠 Повторити за розкладом (${Math.min(10, dueWords.length)} слів)
+          </button>
+        </div>
+
+        <div class="card">
+          <div style="font-weight:900;font-size:16px;margin-bottom:6px;">🎯 Слабкі слова та бліц</div>
+          <div class="muted" style="margin-bottom:12px;">Слова, у яких були помилки під час уроків або екзаменів: <strong>${weakList.length}</strong></div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="btn btn-orange btn-sm" id="rev-weak-btn" ${weakList.length === 0 ? 'disabled' : ''}>
+              Робота над помилками (${weakList.length})
+            </button>
+            <button class="btn btn-blue btn-sm" id="rev-blitz-btn">⚡ Швидкий бліц (8 питань)</button>
           </div>
         </div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          <button class="btn btn-primary btn-sm" id="rev-weak-btn" ${weakList.length === 0 ? 'disabled' : ''}>
-            Тренувати слабкі (${weakList.length})
-          </button>
-          <button class="btn btn-blue btn-sm" id="rev-blitz-btn">⚡ Швидкий бліц (8 питань)</button>
-        </div>
-      </div>
+      `;
+    } else if (sub === 'cards') {
+      const deck = getDeckByFilter(fcFilter);
+      if (fcIndex >= deck.length) fcIndex = 0;
+      const cardWord = deck[fcIndex] || null;
 
-      <div class="card">
-        <div style="font-weight:900;font-size:16px;margin-bottom:8px;">🃏 3D-Флешкартки</div>
-        <div class="scenario-strip" id="fc-filters">
-          <button class="chip-btn ${fcFilter === 'unlocked' ? 'active' : ''}" data-f="unlocked">Вивчені (${unlockedWords.length})</button>
-          <button class="chip-btn ${fcFilter === 'weak' ? 'active' : ''}" data-f="weak">Слабкі (${weakList.length})</button>
-          <button class="chip-btn ${fcFilter === 'all' ? 'active' : ''}" data-f="all">Усі (${ALL_WORDS.length})</button>
-          ${DATA.course.map((s, i) => `<button class="chip-btn ${fcFilter === s.id ? 'active' : ''}" data-f="${s.id}">Розділ ${i + 1}</button>`).join('')}
-        </div>
+      body = `
+        <div class="card">
+          <div class="scenario-strip" id="fc-filters">
+            <button class="chip-btn ${fcFilter === 'unlocked' ? 'active' : ''}" data-f="unlocked">Вивчені (${unlockedWords.length})</button>
+            <button class="chip-btn ${fcFilter === 'due' ? 'active' : ''}" data-f="due">SRS (${dueWords.length})</button>
+            <button class="chip-btn ${fcFilter === 'weak' ? 'active' : ''}" data-f="weak">Слабкі (${weakList.length})</button>
+            <button class="chip-btn ${fcFilter === 'all' ? 'active' : ''}" data-f="all">Усі (${ALL_WORDS.length})</button>
+            ${SECTIONS.map((s, i) => `<button class="chip-btn ${fcFilter === s.id ? 'active' : ''}" data-f="${s.id}">Розділ ${i + 1}</button>`).join('')}
+          </div>
 
-        ${cardWord ? `
-          <div class="muted" style="text-align:center;margin-top:6px;">Картка ${fcIndex + 1} з ${deck.length} • Натисни, щоб перевернути</div>
-          <div class="flashcard-wrap">
-            <div class="flashcard ${fcFlipped ? 'flipped' : ''}" id="fc-card">
-              <div class="fc-face fc-front">
-                <div class="muted" style="margin-bottom:8px;">Словацькою</div>
-                <div style="font-size:28px;font-weight:900;margin-bottom:6px;">${escHtml(cardWord.sk)}</div>
-                <div class="intro-tr" style="margin-bottom:14px;">[${escHtml(cardWord.tr)}]</div>
-                <button class="audio-btn" id="fc-speak">🔊 Послухати</button>
-              </div>
-              <div class="fc-face fc-back">
-                <div class="muted" style="margin-bottom:8px;">Українською</div>
-                <div style="font-size:26px;font-weight:900;color:var(--green);margin-bottom:10px;">${escHtml(cardWord.uk)}</div>
-                <div class="muted" style="font-size:13px;max-width:340px;">💡 ${escHtml(cardWord.tip)}</div>
+          ${cardWord ? `
+            <div class="muted" style="text-align:center;margin-top:4px;">Картка ${fcIndex + 1} з ${deck.length} • Натисни, щоб перевернути</div>
+            <div class="flashcard-wrap">
+              <div class="flashcard ${fcFlipped ? 'flipped' : ''}" id="fc-card">
+                <div class="fc-face fc-front">
+                  <div class="muted" style="margin-bottom:8px;">Словацькою</div>
+                  <div style="font-size:28px;font-weight:900;margin-bottom:6px;">${escHtml(cardWord.sk)}</div>
+                  <div class="intro-tr" style="margin-bottom:14px;">[${escHtml(cardWord.tr)}]</div>
+                  <button class="audio-btn" id="fc-speak">🔊 Послухати</button>
+                </div>
+                <div class="fc-face fc-back">
+                  <div class="muted" style="margin-bottom:8px;">Українською</div>
+                  <div style="font-size:26px;font-weight:900;color:var(--green);margin-bottom:10px;">${escHtml(cardWord.uk)}</div>
+                  <div class="muted" style="font-size:13px;max-width:340px;">💡 ${escHtml(cardWord.tip)}</div>
+                </div>
               </div>
             </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+              <button class="btn btn-outline" id="fc-again">🔁 Ще раз</button>
+              <button class="btn btn-primary" id="fc-know">✓ Знаю</button>
+            </div>
+          ` : `<div class="muted" style="text-align:center;padding:24px 0;">У цій категорії поки порожньо 🎉</div>`}
+        </div>
+      `;
+    } else {
+      // HANDS-FREE AUDIO MODE ("У навушниках")
+      const deck = getDeckByFilter(audioDeckFilter);
+      if (audioIdx >= deck.length) audioIdx = 0;
+      const w = deck[audioIdx] || null;
+
+      body = `
+        <div class="card">
+          <div style="font-weight:900;font-size:16px;margin-bottom:4px;">🎧 Режим «У навушниках»</div>
+          <div class="muted" style="margin-bottom:10px;">Автоматично диктує по колу: словацьке слово → пауза (згадуєш) → український переклад.</div>
+
+          <div class="scenario-strip" id="am-filters">
+            <button class="chip-btn ${audioDeckFilter === 'unlocked' ? 'active' : ''}" data-af="unlocked">Вивчені (${unlockedWords.length})</button>
+            <button class="chip-btn ${audioDeckFilter === 'due' ? 'active' : ''}" data-af="due">SRS (${dueWords.length})</button>
+            <button class="chip-btn ${audioDeckFilter === 'weak' ? 'active' : ''}" data-af="weak">Слабкі (${weakList.length})</button>
+            ${SECTIONS.map((s, i) => `<button class="chip-btn ${audioDeckFilter === s.id ? 'active' : ''}" data-af="${s.id}">Розділ ${i + 1}</button>`).join('')}
           </div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
-            <button class="btn btn-outline" id="fc-again">🔁 Повторити ще</button>
-            <button class="btn btn-primary" id="fc-know">✓ Знаю</button>
-          </div>
-        ` : `<div class="muted" style="text-align:center;padding:24px 0;">У цій категорії поки порожньо 🎉</div>`}
+
+          ${w ? `
+            <div class="audio-stage">
+              <div class="audio-phase-pill" id="am-phase">🎧 Готово до запуску</div>
+              <div class="muted" id="am-count" style="margin-bottom:6px;">${audioIdx + 1} / ${deck.length}</div>
+              <div style="font-size:30px;font-weight:900;margin-bottom:4px;" id="am-sk">${escHtml(w.sk)}</div>
+              <div class="intro-tr" style="margin-bottom:12px;" id="am-tr">[${escHtml(w.tr)}]</div>
+              <div style="font-size:21px;font-weight:800;color:var(--green);" id="am-uk">${escHtml(w.uk)}</div>
+
+              <div class="audio-player-controls">
+                <button class="icon-btn" id="am-prev" aria-label="Попереднє">⏮</button>
+                <button class="play-circle-btn ${audioPlaying ? 'playing' : ''}" id="am-play" aria-label="Старт/Пауза">${audioPlaying ? '⏸' : '▶'}</button>
+                <button class="icon-btn" id="am-next" aria-label="Наступне">⏭</button>
+              </div>
+            </div>
+
+            <div class="row-between" style="padding:6px 0;">
+              <span class="muted" style="font-weight:700;">Пауза на згадування:</span>
+              <div style="display:flex;gap:6px;">
+                ${[2, 3, 4].map((sec) => `<button class="chip-btn ${state.audioPauseSec === sec ? 'active' : ''}" data-apause="${sec}">${sec}с</button>`).join('')}
+              </div>
+            </div>
+            <div class="row-between" style="padding:6px 0;">
+              <span style="font-size:13.5px;font-weight:700;">🐢 Повільна вимова словацької</span>
+              <label class="switch"><input type="checkbox" id="am-slow" ${state.audioSlow ? 'checked' : ''}><span class="slider"></span></label>
+            </div>
+            <div class="row-between" style="padding:6px 0;">
+              <span style="font-size:13.5px;font-weight:700;">🇺🇦 Озвучувати переклад українською</span>
+              <label class="switch"><input type="checkbox" id="am-speak-uk" ${state.audioSpeakUk ? 'checked' : ''}><span class="slider"></span></label>
+            </div>
+          ` : `<div class="muted" style="text-align:center;padding:24px 0;">У цій категорії поки немає слів.</div>`}
+        </div>
+      `;
+    }
+
+    mainView.innerHTML = `
+      <div class="subtabs" id="rev-subtabs">
+        <button class="subtab ${sub === 'srs' ? 'active' : ''}" data-rs="srs">🧠 SRS (${dueWords.length})</button>
+        <button class="subtab ${sub === 'cards' ? 'active' : ''}" data-rs="cards">🃏 Картки</button>
+        <button class="subtab ${sub === 'audio' ? 'active' : ''}" data-rs="audio">🎧 Навушники</button>
       </div>
+      ${body}
     `;
 
-    document.getElementById('rev-weak-btn').onclick = () => {
-      const q = shuffle(weakList).slice(0, 8).map((w, i) => ({
-        type: i % 2 === 0 ? 'mc_sk_uk' : 'mc_uk_sk',
-        word: w,
-        pool: ALL_WORDS
-      }));
-      startLesson(null, q, 'Робота над помилками');
-    };
-
-    document.getElementById('rev-blitz-btn').onclick = () => {
-      const src = shuffle(unlockedWords).slice(0, 8);
-      const q = src.map((w, i) => ({
-        type: i % 3 === 0 ? 'mc_sk_uk' : (i % 3 === 1 ? 'mc_uk_sk' : (SpeechEngine.supported ? 'listen_mc' : 'mc_sk_uk')),
-        word: w,
-        pool: unlockedWords.length >= 6 ? unlockedWords : ALL_WORDS
-      }));
-      startLesson(null, q, 'Швидкий бліц');
-    };
-
-    document.getElementById('fc-filters').querySelectorAll('.chip-btn').forEach((b) => {
+    document.getElementById('rev-subtabs').querySelectorAll('.subtab').forEach((b) => {
       b.onclick = () => {
-        fcFilter = b.dataset.f;
-        fcIndex = 0;
-        fcFlipped = false;
+        if (b.dataset.rs !== 'audio') stopAudioMode();
+        state.reviewSubtab = b.dataset.rs;
+        saveState();
         renderReviewTab();
       };
     });
 
+    // Bind SRS subtab
+    const srsBtn = document.getElementById('rev-srs-btn');
+    if (srsBtn) {
+      srsBtn.onclick = () => {
+        const q = dueWords.slice(0, 10).map((w, i) => ({
+          type: i % 3 === 0 ? 'mc_sk_uk' : (i % 3 === 1 ? 'mc_uk_sk' : 'typing'),
+          word: w,
+          pool: ALL_WORDS
+        }));
+        startCustomDrill(q, 'Розумне повторення (SRS)', 'srs');
+      };
+    }
+
+    const weakBtn = document.getElementById('rev-weak-btn');
+    if (weakBtn) {
+      weakBtn.onclick = () => {
+        const q = shuffle(weakList).slice(0, 8).map((w, i) => ({
+          type: i % 2 === 0 ? 'mc_sk_uk' : 'mc_uk_sk',
+          word: w,
+          pool: ALL_WORDS
+        }));
+        startCustomDrill(q, 'Робота над помилками', 'srs');
+      };
+    }
+
+    const blitzBtn = document.getElementById('rev-blitz-btn');
+    if (blitzBtn) {
+      blitzBtn.onclick = () => {
+        const src = shuffle(unlockedWords).slice(0, 8);
+        const q = src.map((w, i) => ({
+          type: i % 3 === 0 ? 'mc_sk_uk' : (i % 3 === 1 ? 'mc_uk_sk' : (SpeechEngine.supported ? 'listen_mc' : 'mc_sk_uk')),
+          word: w,
+          pool: unlockedWords.length >= 6 ? unlockedWords : ALL_WORDS
+        }));
+        startCustomDrill(q, 'Швидкий бліц', 'custom');
+      };
+    }
+
+    // Bind Flashcards subtab
+    const fcFilters = document.getElementById('fc-filters');
+    if (fcFilters) {
+      fcFilters.querySelectorAll('.chip-btn').forEach((b) => {
+        b.onclick = () => {
+          fcFilter = b.dataset.f;
+          fcIndex = 0;
+          fcFlipped = false;
+          renderReviewTab();
+        };
+      });
+    }
     const fcEl = document.getElementById('fc-card');
-    if (fcEl && cardWord) {
+    if (fcEl) {
+      const deck = getDeckByFilter(fcFilter);
+      const cardWord = deck[fcIndex];
       fcEl.onclick = (e) => {
         if (e.target.id === 'fc-speak') return;
         fcFlipped = !fcFlipped;
@@ -1351,18 +2329,15 @@
         SpeechEngine.speak(cardWord.sk, false);
       };
       document.getElementById('fc-again').onclick = () => {
-        if (!state.weakWords.includes(cardWord.id)) {
-          state.weakWords.push(cardWord.id);
-          saveState();
-        }
+        srsMarkWrong(cardWord.id);
+        saveState();
         SoundFX.tap();
         fcFlipped = false;
         fcIndex = (fcIndex + 1) % deck.length;
         renderReviewTab();
       };
       document.getElementById('fc-know').onclick = () => {
-        state.weakWords = state.weakWords.filter((id) => id !== cardWord.id);
-        markWordMastered(cardWord.id);
+        srsMarkCorrect(cardWord.id, true);
         saveState();
         SoundFX.ok();
         fcFlipped = false;
@@ -1370,27 +2345,72 @@
         renderReviewTab();
       };
     }
+
+    // Bind Audio Mode subtab
+    const amFilters = document.getElementById('am-filters');
+    if (amFilters) {
+      amFilters.querySelectorAll('.chip-btn').forEach((b) => {
+        b.onclick = () => {
+          stopAudioMode();
+          audioDeckFilter = b.dataset.af;
+          audioIdx = 0;
+          renderReviewTab();
+        };
+      });
+    }
+    const amPlay = document.getElementById('am-play');
+    if (amPlay) {
+      const deck = getDeckByFilter(audioDeckFilter);
+      if (deck[audioIdx]) updateAudioCardUI(deck[audioIdx], deck.length);
+
+      amPlay.onclick = () => {
+        if (audioPlaying) {
+          stopAudioMode();
+          if (deck[audioIdx]) updateAudioCardUI(deck[audioIdx], deck.length);
+        } else {
+          audioPlaying = true;
+          requestWakeLock();
+          runAudioLoop();
+        }
+      };
+      document.getElementById('am-prev').onclick = () => {
+        clearTimeout(audioTimer);
+        SpeechEngine.cancel();
+        audioIdx = (audioIdx - 1 + deck.length) % deck.length;
+        if (audioPlaying) runAudioLoop();
+        else updateAudioCardUI(deck[audioIdx], deck.length);
+      };
+      document.getElementById('am-next').onclick = () => {
+        clearTimeout(audioTimer);
+        SpeechEngine.cancel();
+        audioIdx = (audioIdx + 1) % deck.length;
+        if (audioPlaying) runAudioLoop();
+        else updateAudioCardUI(deck[audioIdx], deck.length);
+      };
+      mainView.querySelectorAll('[data-apause]').forEach((b) => {
+        b.onclick = () => {
+          state.audioPauseSec = Number(b.dataset.apause);
+          saveState();
+          renderReviewTab();
+        };
+      });
+      document.getElementById('am-slow').onchange = (e) => { state.audioSlow = e.target.checked; saveState(); };
+      document.getElementById('am-speak-uk').onchange = (e) => { state.audioSpeakUk = e.target.checked; saveState(); };
+    }
   }
 
   // =====================================================
-  // TAB 3: AI TUTOR (Gemini API + Offline Practice)
+  // TAB 3: AI CHAT (Gemini + Offline)
   // =====================================================
-  const chatHistory = {}; // scenarioId -> [{role:'bot'|'user', sk, uk, tip, showUk}]
-
+  const chatHistory = {};
   function getScenario(id) {
-    return DATA.aiScenarios.find((s) => s.id === id) || DATA.aiScenarios[0];
+    return REF.aiScenarios.find((s) => s.id === id) || REF.aiScenarios[0];
   }
-
   function ensureScenarioInit(scId) {
     if (!chatHistory[scId]) {
       const sc = getScenario(scId);
-      chatHistory[scId] = [{
-        role: 'bot',
-        sk: sc.first_sk,
-        uk: sc.first_uk,
-        tip: sc.hint,
-        showUk: false
-      }];
+      if (!sc) return;
+      chatHistory[scId] = [{ role: 'bot', sk: sc.first_sk, uk: sc.first_uk, tip: sc.hint, showUk: false }];
     }
   }
 
@@ -1399,69 +2419,62 @@
     if (scId === 'interview') {
       if (/volam|dmytro|ukrajin|dobry|ahoj/.test(low)) {
         return {
-          sk: 'Teší ma! Hľadáte prácu na plný úväzok? Máte skúsenosť alebo vodičský preukaz?',
-          uk: 'Приємно познайомитися! Ви шукаєте роботу на повну зайнятість? Маєте досвід або водійські права?',
-          tip: 'Спробуй відповісти: «Áno, hľadám prácu na plný úväzok. Mám vodičský preukaz.»'
+          sk: 'Teší ma! Hľadáte prácu? Máte skúsenosť alebo vodičský preukaz?',
+          uk: 'Приємно познайомитися! Ви шукаєте роботу? Маєте досвід або водійські права?',
+          tip: 'Спробуй: «Áno, hľadám prácu. Mám vodičský preukaz.»'
         };
       }
-      if (/ano|mam|vodic|skusen|plny|prac/.test(low)) {
+      if (/ano|mam|vodic|skusen|prac|spolahliv/.test(low)) {
         return {
-          sk: 'Výborne! Kedy môžete nastúpiť? Môžete začať v pondelok o ôsmej?',
-          uk: 'Чудово! Коли Ви можете вийти на роботу? Можете почати в понеділок о восьмій?',
-          tip: 'Спробуй: «Áno, môžem začať v pondelok. Aký je plat v čistom?»'
-        };
-      }
-      if (/plat|kolko|euro|peniaz/.test(low)) {
-        return {
-          sk: 'Plat je 1050 eur v čistom plus príplatky za nočné zmeny. Vyhovuje vám to?',
-          uk: 'Зарплата 1050 євро на руки плюс доплати за нічні зміни. Вам це підходить?',
-          tip: 'Відповідь: «Áno, ďakujem. Som spoľahlivý a rýchlo sa učím.»'
+          sk: 'Výborne! Nástup je v pondelok o ôsmej. Môžete pracovať rannú aj nočnú zmenu?',
+          uk: 'Чудово! Вихід у понеділок о восьмій. Можете працювати ранкову й нічну зміну?',
+          tip: 'Спробуй: «Áno, môžem začať v pondelok.»'
         };
       }
       return {
-        sk: 'Rozumiem. Povedzte mi ešte: môžete pracovať aj na rannú a nočnú zmenu?',
-        uk: 'Розумію. Скажіть мені ще: Ви можете працювати і в ранкову, і в нічну зміну?',
-        tip: 'Підключи безкоштовний ключ Gemini у Налаштуваннях, щоб ШІ відповідав повністю вільно!'
+        sk: 'Rozumiem. Tu je pracovná zmluva. Máte ešte otázku?',
+        uk: 'Розумію. Ось трудовий договір. Маєте ще питання?',
+        tip: 'Для повністю вільних діалогів додай безкоштовний ключ Gemini у Налаштуваннях!'
       };
     }
     if (scId === 'shift') {
       if (/ano|rozumiem|ok|dobre/.test(low)) {
         return {
-          sk: 'Super! Prosím, prines dve krabice a skontroluj kvalitu. Keď bude hotovo, povedz mi.',
-          uk: 'Супер! Будь ласка, принеси дві коробки і перевір якість. Коли буде готово — скажи мені.',
-          tip: 'Спробуй відповісти: «Dobre, rozumiem.» або «Majster, je to hotovo.»'
+          sk: 'Super! Sklad je vpravo. Pozor, veľká paleta!',
+          uk: 'Супер! Склад праворуч. Обережно, велика палета!',
+          tip: 'Спробуй: «Majster, je to hotovo.» або «Stroj nefunguje.»'
         };
       }
-      if (/hotovo|stroj|nefunguje|chyba|problem/.test(low)) {
+      if (/hotovo|stroj|nefunguje|chyba/.test(low)) {
         return {
-          sk: 'Ďakujem, že si povedal! Pozriem sa na to. O desiatej je prestávka.',
-          uk: 'Дякую, що сказав! Я подивлюся на це. О десятій перерва.',
-          tip: '«Pozriem sa na to» = Я подивлюся на це.'
+          sk: 'Ďakujem! Počkaj päť minút, všetko je v poriadku. Teraz je prestávka.',
+          uk: 'Дякую! Зачекай п’ять хвилин, усе гаразд. Зараз перерва.',
+          tip: 'Відповідь: «Dobre, ďakujem!»'
         };
       }
       return {
-        sk: 'Pozor, paleta vpravo! Potrebuješ pomoc alebo rukavice?',
-        uk: 'Обережно, палета праворуч! Тобі потрібна допомога чи рукавички?',
-        tip: 'Спробуй: «Áno, potrebujem rukavice, ďakujem.»'
+        sk: 'Potrebuješ pomoc? Kde je krabica?',
+        uk: 'Тобі потрібна допомога? Де коробка?',
+        tip: 'Спробуй: «Áno, potrebujem pomoc.»'
       };
     }
     if (scId === 'shop') {
       if (/chlieb|voda|mlieko|syr|maso|caj|prosim/.test(low)) {
         return {
-          sk: 'Nech sa páči, spolu je to 6 eur a 50 centov. Kartou alebo v hotovosti?',
-          uk: 'Прошу, разом це 6 євро 50 центів. Карткою чи готівкою?',
-          tip: 'Відповідь на касі: «Kartou, prosím.» + «Bloček nie, ďakujem.»'
+          sk: 'Tu, prosím. Desať eur. Kartou alebo v hotovosti?',
+          uk: 'Ось, будь ласка. Десять євро. Карткою чи готівкою?',
+          tip: 'Відповідь: «Kartou, prosím.»'
         };
       }
       return {
-        sk: 'Ďakujem pekne! Chcete aj bloček? Pekný deň, dovidenia!',
-        uk: 'Дуже дякую! Хочете також чек? Гарного дня, до побачення!',
-        tip: 'Для живого діалогу на будь-які теми додай безкоштовний ключ Gemini в Налаштуваннях.'
+        sk: 'Ďakujem! Chcete bloček? Dovidenia!',
+        uk: 'Дякую! Хочете чек? До побачення!',
+        tip: 'Відповідь: «Nie, bloček nie, ďakujem. Dovidenia!»'
       };
     }
     return {
-      sk: 'Ahoj! Pre živé vysvetlenia gramatiky pridaj svoj bezplatný Gemini API kľúč.',
-      uk: 'Для живих відповідей репетитора на будь-які твої питання встав безкоштовний ключ Google AI Studio у вкладці «Налашт.» — це займає 1 хвилину.',
+      sk: 'Pridaj bezplatný Gemini API kľúč v Nastaveniach pre živého učiteľa.',
+      uk: 'Для живих відповідей репетитора встав безкоштовний ключ із aistudio.google.com у вкладці «Налашт.».',
       tip: 'Ключ зберігається тільки локально на твоєму телефоні.'
     };
   }
@@ -1491,19 +2504,12 @@
           })
         });
         const data = await res.json();
-        if (!res.ok) {
-          lastErr = data?.error?.message || `HTTP ${res.status}`;
-          continue;
-        }
+        if (!res.ok) { lastErr = data?.error?.message || `HTTP ${res.status}`; continue; }
         const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
         const cleaned = raw.replace(/^```json\s*/i, '').replace(/```$/i, '').trim();
         try {
           const parsed = JSON.parse(cleaned);
-          return {
-            sk: parsed.sk || raw,
-            uk: parsed.uk || '',
-            tip: parsed.tip || ''
-          };
+          return { sk: parsed.sk || raw, uk: parsed.uk || '', tip: parsed.tip || '' };
         } catch {
           return { sk: raw, uk: '', tip: '' };
         }
@@ -1516,6 +2522,7 @@
 
   function renderAiTab() {
     const sc = getScenario(state.aiScenario);
+    if (!sc) return;
     ensureScenarioInit(sc.id);
     const msgs = chatHistory[sc.id];
     const hasKey = !!state.geminiKey.trim();
@@ -1523,17 +2530,12 @@
     mainView.innerHTML = `
       <div class="chat-wrap">
         <div class="scenario-strip" id="ai-scenarios">
-          ${DATA.aiScenarios.map((s) => `
-            <button class="chip-btn ${s.id === sc.id ? 'active' : ''}" data-sc="${s.id}">${escHtml(s.name)}</button>
-          `).join('')}
+          ${REF.aiScenarios.map((s) => `<button class="chip-btn ${s.id === sc.id ? 'active' : ''}" data-sc="${s.id}">${escHtml(s.name)}</button>`).join('')}
         </div>
 
         <div class="row-between" style="margin-bottom:6px;padding:6px 10px;background:var(--surface);border:1.5px solid var(--border);border-radius:12px;">
           <div style="font-size:12.5px;">
-            ${hasKey
-              ? '<span class="badge-ok">✨ Gemini AI активний</span>'
-              : '<span class="badge-warn">⚡ Офлайн-тренажер</span> <span class="muted">Додай безкоштовний ключ для живого ШІ</span>'
-            }
+            ${hasKey ? '<span class="badge-ok">✨ Gemini AI активний</span>' : '<span class="badge-warn">⚡ Офлайн-тренажер</span>'}
           </div>
           <div style="display:flex;gap:6px;">
             ${!hasKey ? '<button class="msg-mini-btn" id="ai-go-key">🔑 Ключ</button>' : ''}
@@ -1543,16 +2545,14 @@
 
         <div class="chat-messages" id="chat-messages">
           ${msgs.map((m, idx) => {
-            if (m.role === 'user') {
-              return `<div class="msg user">${escHtml(m.text)}</div>`;
-            }
+            if (m.role === 'user') return `<div class="msg user">${escHtml(m.text)}</div>`;
             return `
               <div class="msg bot">
                 <div style="font-weight:800;">${escHtml(m.sk)}</div>
                 <div class="msg-actions">
                   <button class="msg-mini-btn" data-speak="${idx}">🔊 Слухати</button>
                   <button class="msg-mini-btn" data-slow="${idx}">🐢 Повільно</button>
-                  ${m.uk ? `<button class="msg-mini-btn" data-tr="${idx}">${m.showUk ? 'Сховати переклад' : '🇺🇦 Переклад'}</button>` : ''}
+                  ${m.uk ? `<button class="msg-mini-btn" data-tr="${idx}">${m.showUk ? 'Сховати' : '🇺🇦 Переклад'}</button>` : ''}
                 </div>
                 ${m.showUk && m.uk ? `<div class="msg-translation">${escHtml(m.uk)}</div>` : ''}
                 ${m.tip ? `<div class="msg-tip">💡 ${escHtml(m.tip)}</div>` : ''}
@@ -1573,20 +2573,11 @@
     msgBox.scrollTop = msgBox.scrollHeight;
 
     document.getElementById('ai-scenarios').querySelectorAll('.chip-btn').forEach((b) => {
-      b.onclick = () => {
-        state.aiScenario = b.dataset.sc;
-        saveState();
-        renderAiTab();
-      };
+      b.onclick = () => { state.aiScenario = b.dataset.sc; saveState(); renderAiTab(); };
     });
-
     const goKey = document.getElementById('ai-go-key');
     if (goKey) goKey.onclick = () => setTab('settings');
-
-    document.getElementById('ai-reset').onclick = () => {
-      delete chatHistory[sc.id];
-      renderAiTab();
-    };
+    document.getElementById('ai-reset').onclick = () => { delete chatHistory[sc.id]; renderAiTab(); };
 
     msgBox.querySelectorAll('[data-speak]').forEach((b) => {
       b.onclick = () => SpeechEngine.speak(msgs[Number(b.dataset.speak)].sk, false);
@@ -1595,11 +2586,7 @@
       b.onclick = () => SpeechEngine.speak(msgs[Number(b.dataset.slow)].sk, true);
     });
     msgBox.querySelectorAll('[data-tr]').forEach((b) => {
-      b.onclick = () => {
-        const m = msgs[Number(b.dataset.tr)];
-        m.showUk = !m.showUk;
-        renderAiTab();
-      };
+      b.onclick = () => { msgs[Number(b.dataset.tr)].showUk = !msgs[Number(b.dataset.tr)].showUk; renderAiTab(); };
     });
 
     const inp = document.getElementById('chat-input');
@@ -1613,25 +2600,17 @@
       renderAiTab();
 
       if (state.geminiKey.trim()) {
-        msgs.push({ role: 'bot', sk: 'Друкує відповідь...', uk: '', tip: '', _loading: true });
+        msgs.push({ role: 'bot', sk: 'Друкує відповідь...', uk: '', tip: '' });
         renderAiTab();
         try {
           const reply = await callGemini(sc, msgs.slice(0, -1), txt);
           msgs.pop();
           msgs.push({ role: 'bot', ...reply, showUk: sc.id === 'grammar' });
           addXP(3);
-          if (state.autoSpeak && SpeechEngine.supported && reply.sk) {
-            SpeechEngine.speak(reply.sk, false);
-          }
+          if (state.autoSpeak && SpeechEngine.supported && reply.sk) SpeechEngine.speak(reply.sk, false);
         } catch (err) {
           msgs.pop();
-          msgs.push({
-            role: 'bot',
-            sk: 'Помилка підключення до Gemini API.',
-            uk: err.message,
-            tip: 'Перевір ключ у вкладці Налаштування або інтернет-з’єднання.',
-            showUk: true
-          });
+          msgs.push({ role: 'bot', sk: 'Помилка Gemini API.', uk: err.message, tip: 'Перевір ключ у Налаштуваннях.', showUk: true });
         }
         renderAiTab();
       } else {
@@ -1641,7 +2620,7 @@
           addXP(2);
           renderAiTab();
           if (state.autoSpeak && SpeechEngine.supported) SpeechEngine.speak(reply.sk, false);
-        }, 320);
+        }, 300);
       }
     }
 
@@ -1653,10 +2632,7 @@
       micBtn.onclick = () => {
         micBtn.textContent = '🔴';
         MicEngine.listen(
-          (transcript) => {
-            inp.value = transcript;
-            inp.focus();
-          },
+          (transcript) => { inp.value = transcript; inp.focus(); },
           (err) => showToast(err),
           () => { micBtn.textContent = '🎙️'; }
         );
@@ -1668,19 +2644,16 @@
   // TAB 4: REFERENCE (Dictionary, Pronunciation, Traps, Grammar)
   // =====================================================
   let dictQuery = '';
-
   function renderRefTab() {
     const st = state.refSubtab || 'dict';
     let body = '';
 
     if (st === 'dict') {
       const q = normLoose(dictQuery);
-      const filtered = ALL_WORDS.filter((w) =>
-        !q || normLoose(w.sk).includes(q) || normLoose(w.uk).includes(q)
-      );
+      const filtered = ALL_WORDS.filter((w) => !q || normLoose(w.sk).includes(q) || normLoose(w.uk).includes(q));
       body = `
         <input type="search" class="text-input" id="dict-search" placeholder="🔍 Пошук словацькою або українською..." value="${escHtml(dictQuery)}" style="margin-bottom:12px;" />
-        <div class="muted" style="margin-bottom:8px;">Показано слів: ${filtered.length} з ${ALL_WORDS.length}</div>
+        <div class="muted" style="margin-bottom:8px;">Слів у завантажених модулях: ${filtered.length} з ${ALL_WORDS.length}</div>
         ${filtered.map((w) => `
           <div class="dict-row">
             <div style="min-width:0;">
@@ -1692,37 +2665,25 @@
         `).join('')}
       `;
     } else if (st === 'pron') {
-      body = `
-        <div class="card">
-          <div style="font-weight:900;font-size:16px;margin-bottom:6px;">🗣️ Правила читання для українців</div>
-          <div class="muted">Словацька читається дуже логічно — достатньо запам’ятати ці 9 правил.</div>
+      body = REF.pronunciation.map((r) => `
+        <div class="card" style="padding:12px 14px;">
+          <div style="font-weight:900;color:var(--blue);font-size:15px;">${escHtml(r.symbol)}</div>
+          <div style="font-weight:700;margin:3px 0;">${escHtml(r.sound)}</div>
+          <div class="muted">Приклади: ${escHtml(r.ex)}</div>
         </div>
-        ${DATA.pronunciation.map((r) => `
-          <div class="card" style="padding:12px 14px;">
-            <div style="font-weight:900;color:var(--blue);font-size:15px;">${escHtml(r.symbol)}</div>
-            <div style="font-weight:700;margin:3px 0;">${escHtml(r.sound)}</div>
-            <div class="muted">Приклади: ${escHtml(r.ex)}</div>
-          </div>
-        `).join('')}
-      `;
+      `).join('');
     } else if (st === 'traps') {
-      body = `
-        <div class="card">
-          <div style="font-weight:900;font-size:16px;margin-bottom:6px;">⚠️ 16 «фальшивих друзів»</div>
-          <div class="muted">Слова, які звучать знайомо, але означають зовсім інше!</div>
-        </div>
-        ${DATA.falseFriends.map((f) => `
-          <div class="dict-row">
-            <div>
-              <div style="font-weight:900;font-size:15px;">${escHtml(f.sk)} → <span style="color:var(--green);">${escHtml(f.uk)}</span></div>
-              <div style="font-size:12.5px;color:var(--orange);font-weight:700;">${escHtml(f.trap)}</div>
-            </div>
-            <button class="audio-mini-btn" data-say="${escHtml(f.sk)}">🔊</button>
+      body = REF.falseFriends.map((f) => `
+        <div class="dict-row">
+          <div>
+            <div style="font-weight:900;font-size:15px;">${escHtml(f.sk)} → <span style="color:var(--green);">${escHtml(f.uk)}</span></div>
+            <div style="font-size:12.5px;color:var(--orange);font-weight:700;">${escHtml(f.trap)}</div>
           </div>
-        `).join('')}
-      `;
+          <button class="audio-mini-btn" data-say="${escHtml(f.sk)}">🔊</button>
+        </div>
+      `).join('');
     } else {
-      body = DATA.grammar.map((g) => `
+      body = REF.grammar.map((g) => `
         <div class="card">
           <div style="font-weight:900;font-size:15px;color:var(--purple);margin-bottom:8px;">${escHtml(g.title)}</div>
           <div style="white-space:pre-line;font-size:14px;line-height:1.55;">${escHtml(g.body)}</div>
@@ -1741,11 +2702,7 @@
     `;
 
     document.getElementById('ref-subtabs').querySelectorAll('.subtab').forEach((b) => {
-      b.onclick = () => {
-        state.refSubtab = b.dataset.st;
-        saveState();
-        renderRefTab();
-      };
+      b.onclick = () => { state.refSubtab = b.dataset.st; saveState(); renderRefTab(); };
     });
 
     const searchEl = document.getElementById('dict-search');
@@ -1754,10 +2711,7 @@
         dictQuery = e.target.value;
         renderRefTab();
         const fresh = document.getElementById('dict-search');
-        if (fresh) {
-          fresh.focus();
-          fresh.setSelectionRange(fresh.value.length, fresh.value.length);
-        }
+        if (fresh) { fresh.focus(); fresh.setSelectionRange(fresh.value.length, fresh.value.length); }
       });
     }
 
@@ -1767,7 +2721,7 @@
   }
 
   // =====================================================
-  // TAB 5: SETTINGS, ANDROID TTS, PWA INSTALL & BACKUP
+  // TAB 5: SETTINGS (Modules, Android TTS, PWA, Gemini, Backup)
   // =====================================================
   let deferredInstallPrompt = null;
   window.addEventListener('beforeinstallprompt', (e) => {
@@ -1785,49 +2739,53 @@
     const allVoices = SpeechEngine.getAllVoices();
     const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
 
-    let voiceBadge = '';
-    if (!SpeechEngine.supported) {
-      voiceBadge = '<span class="badge-warn">⚠️ Браузер не підтримує синтез мовлення</span>';
-    } else if (skVoices.length > 0) {
-      voiceBadge = `<span class="badge-ok">✅ Словацький голос готовий (${escHtml(skVoices[0].name)})</span>`;
-    } else {
-      voiceBadge = '<span class="badge-warn">⚠️ Пакет sk-SK не знайдено — вмикаємо системний</span>';
-    }
+    const voiceBadge = !SpeechEngine.supported
+      ? '<span class="badge-warn">⚠️ Браузер не підтримує синтез мовлення</span>'
+      : (skVoices.length > 0
+          ? `<span class="badge-ok">✅ Словацький голос: ${escHtml(skVoices[0].name)}</span>`
+          : '<span class="badge-warn">⚠️ Пакет sk-SK не знайдено — вмикаємо системний</span>');
 
     mainView.innerHTML = `
       <div class="card">
+        <div class="row-between" style="margin-bottom:8px;">
+          <div style="font-weight:900;font-size:16px;">📦 Підключені модулі (${LOADED_MODULES.length})</div>
+          <button class="btn btn-outline btn-sm" id="set-refresh-mods">🔄 Оновити</button>
+        </div>
+        ${LOADED_MODULES.map((m) => `
+          <div class="muted" style="padding:4px 0;">• <strong>${escHtml(m.id)}.js</strong> — ${escHtml(m.name || '')} (${(m.sections || []).length} розд.)</div>
+        `).join('')}
+        <div class="muted" style="margin-top:8px;font-size:12px;">
+          Щоб розширити курс: просто закинь наступний файл <strong>m${LOADED_MODULES.length + 1}.js</strong> на GitHub і натисни «Оновити». Весь прогрес збережеться!
+        </div>
+      </div>
+
+      <div class="card">
         <div style="font-weight:900;font-size:16px;margin-bottom:8px;">📲 Встановлення на телефон (PWA)</div>
         ${isStandalone
-          ? '<div class="badge-ok">✅ Додаток вже встановлено на робочий стіл!</div>'
+          ? '<div class="badge-ok">✅ Додаток вже встановлено!</div>'
           : (deferredInstallPrompt
               ? '<button class="btn btn-primary btn-full" id="set-pwa-install">📲 Встановити SlovoSK на телефон</button>'
-              : '<div class="muted">У Chrome натисни меню <strong>⋮</strong> (праворуч зверху) → <strong>«Додати на головний екран»</strong> або <strong>«Встановити додаток»</strong>.</div>')
+              : '<div class="muted">У Chrome натисни меню <strong>⋮</strong> → <strong>«Додати на головний екран»</strong>.</div>')
         }
       </div>
 
       <div class="card">
-        <div style="font-weight:900;font-size:16px;margin-bottom:8px;">🔊 Озвучка та мікрофон (Android)</div>
+        <div style="font-weight:900;font-size:16px;margin-bottom:8px;">🔊 Озвучка та мікрофон</div>
         <div style="margin-bottom:10px;">${voiceBadge}</div>
         <div style="display:flex;gap:8px;margin-bottom:12px;">
           <button class="btn btn-blue btn-sm" id="set-test-tts">🔊 Тест словацької</button>
           <button class="btn btn-outline btn-sm" id="set-test-slow">🐢 Повільно</button>
         </div>
 
-        ${skVoices.length > 0 || allVoices.length > 0 ? `
+        ${allVoices.some((v) => /^(sk|cs)/i.test(v.lang)) ? `
           <label class="muted" style="display:block;margin-bottom:4px;">Голос озвучки:</label>
           <select id="set-voice-select" class="text-input" style="padding:10px;font-size:13px;margin-bottom:12px;">
             <option value="">Авто (найкращий словацький sk-SK)</option>
-            ${allVoices
-              .filter((v) => /^(sk|cs)/i.test(v.lang))
-              .map((v) => `<option value="${escHtml(v.voiceURI)}" ${state.preferredVoiceURI === v.voiceURI ? 'selected' : ''}>${escHtml(v.name)} (${escHtml(v.lang)})</option>`)
-              .join('')}
+            ${allVoices.filter((v) => /^(sk|cs)/i.test(v.lang)).map((v) =>
+              `<option value="${escHtml(v.voiceURI)}" ${state.preferredVoiceURI === v.voiceURI ? 'selected' : ''}>${escHtml(v.name)} (${escHtml(v.lang)})</option>`
+            ).join('')}
           </select>
         ` : ''}
-
-        <div class="muted" style="background:var(--surface-2);padding:10px 12px;border-radius:12px;margin-bottom:12px;font-size:12.5px;">
-          💡 Якщо голос звучить дивно або мовчить на Android:<br/>
-          <strong>Налаштування → Загальне керування → Синтез мовлення → Google → Встановити голосові дані → Словацька (Slovenčina)</strong>.
-        </div>
 
         <div class="row-between" style="padding:8px 0;">
           <div>
@@ -1839,23 +2797,23 @@
         <div class="row-between" style="padding:8px 0;">
           <div>
             <div style="font-weight:700;">Звукові ефекти</div>
-            <div class="muted">Звук правильної / неправильної відповіді</div>
+            <div class="muted">Звуки правильної / неправильної відповіді</div>
           </div>
           <label class="switch"><input type="checkbox" id="set-sfx" ${state.soundFx ? 'checked' : ''}><span class="slider"></span></label>
         </div>
         <div class="row-between" style="padding:8px 0;">
           <div>
             <div style="font-weight:700;">Вправи з мікрофоном</div>
-            <div class="muted">${MicEngine.supported ? 'Перевірка вимови наприкінці уроків' : 'Браузер не підтримує розпізнавання голосу'}</div>
+            <div class="muted">${MicEngine.supported ? 'Перевірка вимови в уроках' : 'Не підтримується в цьому браузері'}</div>
           </div>
           <label class="switch"><input type="checkbox" id="set-mic" ${state.micEnabled ? 'checked' : ''} ${MicEngine.supported ? '' : 'disabled'}><span class="slider"></span></label>
         </div>
       </div>
 
       <div class="card">
-        <div style="font-weight:900;font-size:16px;margin-bottom:8px;">🤖 ШІ-Репетитор (Google Gemini API)</div>
+        <div style="font-weight:900;font-size:16px;margin-bottom:8px;">🤖 ШІ-Репетитор (Gemini API)</div>
         <div class="muted" style="margin-bottom:10px;">
-          Встав безкоштовний ключ із <strong>aistudio.google.com</strong> (кнопка <em>Get API key</em>). Ключ зберігається тільки локально на твоєму телефоні.
+          Безкоштовний ключ із <strong>aistudio.google.com</strong> (<em>Get API key</em>). Зберігається тільки на твоєму телефоні.
         </div>
         <input type="password" class="text-input" id="set-gemini-key" placeholder="AIzaSy..." value="${escHtml(state.geminiKey)}" style="margin-bottom:10px;" />
         <div style="display:flex;gap:8px;">
@@ -1869,7 +2827,7 @@
         <div class="row-between" style="padding:8px 0;">
           <div>
             <div style="font-weight:700;">♾️ Безкінечні серця</div>
-            <div class="muted">Вчитися без втрати сердець за помилки</div>
+            <div class="muted">Не діє на екзаменах розділу (там завжди макс. 1 помилка)</div>
           </div>
           <label class="switch"><input type="checkbox" id="set-inf-hearts" ${state.infiniteHearts ? 'checked' : ''}><span class="slider"></span></label>
         </div>
@@ -1893,19 +2851,23 @@
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
           <button class="btn btn-outline btn-sm" id="set-export">⬇️ Експорт JSON</button>
           <button class="btn btn-outline btn-sm" id="set-import">⬆️ Імпорт JSON</button>
-          <button class="btn btn-outline btn-sm" id="set-reset" style="color:var(--red);">🗑️ Скинути прогрес</button>
+          <button class="btn btn-outline btn-sm" id="set-reset" style="color:var(--red);">🗑️ Скинути</button>
           <input type="file" id="import-file" accept=".json" class="hidden" />
         </div>
       </div>
     `;
+
+    document.getElementById('set-refresh-mods').onclick = () => {
+      showToast('Оновлюємо курс...');
+      location.reload();
+    };
 
     const installBtn = document.getElementById('set-pwa-install');
     if (installBtn) {
       installBtn.onclick = async () => {
         if (!deferredInstallPrompt) return;
         deferredInstallPrompt.prompt();
-        const res = await deferredInstallPrompt.userChoice;
-        if (res.outcome === 'accepted') showToast('Встановлення запущено! 🎉');
+        await deferredInstallPrompt.userChoice;
         deferredInstallPrompt = null;
         renderSettingsTab();
       };
@@ -1916,11 +2878,7 @@
 
     const vs = document.getElementById('set-voice-select');
     if (vs) {
-      vs.onchange = () => {
-        state.preferredVoiceURI = vs.value;
-        saveState();
-        SpeechEngine.speak('Dobrý deň, ďakujem.', false);
-      };
+      vs.onchange = () => { state.preferredVoiceURI = vs.value; saveState(); SpeechEngine.speak('Dobrý deň, ďakujem.', false); };
     }
 
     document.getElementById('set-autospeak').onchange = (e) => { state.autoSpeak = e.target.checked; saveState(); };
@@ -1931,19 +2889,10 @@
       if (state.infiniteHearts) state.hearts = 5;
       saveState();
     };
-    document.getElementById('set-dark').onchange = (e) => {
-      state.theme = e.target.checked ? 'dark' : 'light';
-      applyTheme();
-      saveState();
-    };
+    document.getElementById('set-dark').onchange = (e) => { state.theme = e.target.checked ? 'dark' : 'light'; applyTheme(); saveState(); };
 
     mainView.querySelectorAll('[data-goal]').forEach((b) => {
-      b.onclick = () => {
-        state.dailyGoal = Number(b.dataset.goal);
-        saveState();
-        renderSettingsTab();
-        showToast(`Денна ціль: ${state.dailyGoal} XP`);
-      };
+      b.onclick = () => { state.dailyGoal = Number(b.dataset.goal); saveState(); renderSettingsTab(); };
     });
 
     document.getElementById('set-save-key').onclick = () => {
@@ -1951,12 +2900,7 @@
       saveState();
       showToast(state.geminiKey ? 'Ключ Gemini збережено! ✨' : 'Ключ порожній');
     };
-    document.getElementById('set-clear-key').onclick = () => {
-      state.geminiKey = '';
-      saveState();
-      renderSettingsTab();
-      showToast('Ключ видалено');
-    };
+    document.getElementById('set-clear-key').onclick = () => { state.geminiKey = ''; saveState(); renderSettingsTab(); };
 
     document.getElementById('set-export').onclick = () => {
       const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
@@ -1966,7 +2910,7 @@
       a.download = `slovosk_backup_${todayKey()}.json`;
       a.click();
       URL.revokeObjectURL(url);
-      showToast('Файл резервної копії збережено');
+      showToast('Копію прогресу збережено');
     };
 
     const importFile = document.getElementById('import-file');
@@ -1977,14 +2921,13 @@
       const reader = new FileReader();
       reader.onload = () => {
         try {
-          const parsed = JSON.parse(reader.result);
-          state = { ...defaultState(), ...parsed };
+          state = { ...defaultState(), ...JSON.parse(reader.result) };
           applyTheme();
           saveState();
           renderSettingsTab();
-          showToast('Прогрес успішно відновлено! 🎉');
+          showToast('Прогрес відновлено! 🎉');
         } catch {
-          showToast('Невірний формат JSON-файлу');
+          showToast('Невірний формат JSON');
         }
       };
       reader.readAsText(file);
@@ -1993,7 +2936,7 @@
     document.getElementById('set-reset').onclick = () => {
       openModal(`
         <h3>🗑️ Скинути весь прогрес?</h3>
-        <p class="muted" style="margin-bottom:16px;">Будуть видалені всі пройдені уроки, XP і серія днів (API-ключ можна буде ввести знову).</p>
+        <p class="muted" style="margin-bottom:16px;">Будуть очищені пройдені уроки, екзамени, SRS, XP і серія.</p>
         <div style="display:flex;gap:10px;">
           <button class="btn btn-outline btn-full" id="m-cancel-rst">Скасувати</button>
           <button class="btn btn-danger btn-full" id="m-confirm-rst">Скинути</button>
@@ -2012,7 +2955,7 @@
   }
 
   // =====================================================
-  // SERVICE WORKER & INIT
+  // BOOTSTRAP
   // =====================================================
   if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
     window.addEventListener('load', () => {
@@ -2022,5 +2965,9 @@
 
   applyTheme();
   updateHeader();
-  setTab('course');
+
+  discoverModules().then(() => {
+    updateSrsBadge();
+    setTab('course');
+  });
 })();

@@ -1,18 +1,19 @@
-const CACHE_NAME = 'slovosk-pwa-v1.0.0';
-const ASSETS = [
+const CACHE_NAME = 'slovosk-pwa-v2.0.0';
+const CORE_ASSETS = [
   './',
   './index.html',
   './styles.css',
-  './lessons.js',
   './app.js',
+  './m1.js',
   './manifest.json',
-  './icons/icon-192.png',
-  './icons/icon-512.png'
+  './icon.svg'
 ];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS))
+    caches.open(CACHE_NAME).then((cache) =>
+      Promise.allSettled(CORE_ASSETS.map((url) => cache.add(url)))
+    )
   );
   self.skipWaiting();
 });
@@ -28,22 +29,25 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
-  // Never cache Gemini API or external requests
   if (url.origin !== self.location.origin) {
     return;
   }
+  // Network-first so new modules (m2.js, m3.js...) and updates appear immediately when online,
+  // while falling back to cache when offline.
   event.respondWith(
-    caches.match(event.request).then((cached) => {
-      const fetchPromise = fetch(event.request)
-        .then((response) => {
-          if (response && response.status === 200 && response.type === 'basic') {
-            const clone = response.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
-          }
-          return response;
+    fetch(event.request, { cache: 'no-cache' })
+      .then((response) => {
+        if (response && response.status === 200 && response.type === 'basic') {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+        }
+        return response;
+      })
+      .catch(() =>
+        caches.match(event.request).then((cached) => {
+          if (cached) return cached;
+          return new Response('', { status: 404, statusText: 'Offline Not Cached' });
         })
-        .catch(() => cached);
-      return cached || fetchPromise;
-    })
+      )
   );
 });
