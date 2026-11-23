@@ -105,13 +105,37 @@
   // =====================================================
   // PERSISTENT STATE (Never loses progress on module updates)
   // =====================================================
-  const todayKey = () => new Date().toISOString().slice(0, 10);
+  const XP_LESSON = 20;
+  const XP_STORY = 15;
+  const XP_EXAM = 30;
+  const XP_REVIEW = 15;
+
+  const todayKey = (dateObj = new Date()) => {
+    const y = dateObj.getFullYear();
+    const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+    const d = String(dateObj.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  };
+
+  function daysBetweenKeys(fromKey, toKey) {
+    if (!fromKey || !toKey) return 0;
+    const p1 = String(fromKey).split('-').map(Number);
+    const p2 = String(toKey).split('-').map(Number);
+    if (p1.length !== 3 || p2.length !== 3 || !p1[0] || !p2[0]) return 0;
+    const t1 = Date.UTC(p1[0], p1[1] - 1, p1[2]);
+    const t2 = Date.UTC(p2[0], p2[1] - 1, p2[2]);
+    return Math.round((t2 - t1) / 86400000);
+  }
 
   const defaultState = () => ({
     xp: 0,
     dailyXp: 0,
-    dailyGoal: 50,
+    dailyGoal: 60,
     lastDay: todayKey(),
+    lastActiveDay: todayKey(),
+    missedDaysWarning: 0,
+    dailyPenalty: 0,
+    lastPenaltyDay: '',
     streak: 0,
     streakDay: '',
     hearts: 5,
@@ -170,12 +194,11 @@
         }
         return defaultState();
       }
-      const parsed = { ...defaultState(), ...JSON.parse(raw) };
+      const rawObj = JSON.parse(raw);
+      const parsed = { ...defaultState(), ...rawObj };
       if (!parsed.srs || typeof parsed.srs !== 'object') parsed.srs = {};
-      const today = todayKey();
-      if (parsed.lastDay !== today) {
-        parsed.dailyXp = 0;
-        parsed.lastDay = today;
+      if (!rawObj.lastActiveDay) {
+        parsed.lastActiveDay = rawObj.streakDay || rawObj.lastDay || todayKey();
       }
       return parsed;
     } catch {
@@ -298,17 +321,84 @@
     return true;
   }
 
-  function addXP(amount) {
+  function computeMissedPenalty(missedDays, goal) {
+    const g = Math.max(10, Number(goal) || 60);
+    if (missedDays < 2) return 0;
+    const raw = missedDays === 2 ? g * 0.4 : g * 0.25 * (missedDays - 1);
+    const rounded = Math.max(10, Math.round(raw / 5) * 5);
+    return Math.min(g, rounded);
+  }
+
+  function syncDailyRollover(rerender = false) {
     const today = todayKey();
-    if (state.lastDay !== today) {
-      state.dailyXp = 0;
-      state.lastDay = today;
+    let changed = false;
+
+    if (!state.lastActiveDay) {
+      state.lastActiveDay = state.streakDay || state.lastDay || today;
+      changed = true;
     }
-    state.xp += amount;
+
+    const gap = daysBetweenKeys(state.lastActiveDay, today);
+    const fullMissedDays = Math.max(0, gap - 1);
+    const activeLearner = hasAnyProgress();
+
+    if (state.lastDay !== today) {
+      state.lastDay = today;
+      state.dailyXp = 0;
+      state.dailyPenalty = 0;
+      if (fullMissedDays >= 1) {
+        state.streak = 0;
+      }
+      if (activeLearner && fullMissedDays === 1) {
+        state.missedDaysWarning = 1;
+      } else if (activeLearner && fullMissedDays >= 2 && state.lastPenaltyDay !== today) {
+        const penalty = computeMissedPenalty(fullMissedDays, state.dailyGoal);
+        state.dailyPenalty = penalty;
+        state.dailyXp = -penalty;
+        state.missedDaysWarning = fullMissedDays;
+        state.lastPenaltyDay = today;
+      } else if (fullMissedDays === 0) {
+        state.missedDaysWarning = 0;
+      }
+      changed = true;
+    } else if (activeLearner) {
+      // Same day check: if user hasn't studied today yet and missed 1+ days
+      if (fullMissedDays === 1 && state.missedDaysWarning === 0 && state.lastActiveDay !== today) {
+        state.missedDaysWarning = 1;
+        changed = true;
+      } else if (fullMissedDays >= 2 && state.lastPenaltyDay !== today && state.lastActiveDay !== today) {
+        const penalty = computeMissedPenalty(fullMissedDays, state.dailyGoal);
+        state.dailyPenalty = penalty;
+        state.dailyXp = -penalty;
+        state.missedDaysWarning = fullMissedDays;
+        state.lastPenaltyDay = today;
+        state.streak = 0;
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      saveState();
+      if (rerender && activeTab === 'course' && !activeSession && !activeStory) {
+        renderCourseTab(true);
+      }
+    }
+    return changed;
+  }
+
+  function addXP(amount) {
+    syncDailyRollover(false);
+    const today = todayKey();
+    state.xp = Math.max(0, state.xp + amount);
     state.dailyXp += amount;
+    state.lastActiveDay = today;
+
+    if (state.dailyXp >= 0) {
+      state.missedDaysWarning = 0;
+    }
 
     if (state.streakDay !== today) {
-      const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+      const yesterday = todayKey(new Date(Date.now() - 86400000));
       if (state.streakDay === yesterday) state.streak += 1;
       else state.streak = 1;
       state.streakDay = today;
@@ -895,19 +985,29 @@
     if (diff.restoreStories.length) restoreParts.push(`діалогів: <strong>${diff.restoreStories.length}</strong>`);
     if (diff.restoreExams.length) restoreParts.push(`екзаменів: <strong>${diff.restoreExams.length}</strong>`);
 
+    const rollbackXp = (diff.resetLessons.length * XP_LESSON)
+      + (diff.resetStories.length * XP_STORY)
+      + (diff.resetExams.length * XP_EXAM);
+
     openModal(`
       <h3>↺ Підтвердити зміни прогресу?</h3>
       <div class="card" style="background:var(--surface-2);margin:12px 0;">
         ${resetParts.length ? `<div style="margin-bottom:6px;color:var(--red);font-weight:700;">↺ Скинути: ${resetParts.join(', ')}</div>` : ''}
         ${restoreParts.length ? `<div style="color:var(--green);font-weight:700;">✓ Повернути (позначити пройденим): ${restoreParts.join(', ')}</div>` : ''}
       </div>
+      ${rollbackXp > 0 ? `
+        <label class="row-between" style="padding:6px 2px;cursor:pointer;gap:10px;">
+          <span style="font-size:13px;">Відкотити XP за скинуті теми (<strong style="color:var(--red);">−${rollbackXp} XP</strong>)</span>
+          <input type="checkbox" id="m-reset-xp-chk" checked style="width:20px;height:20px;accent-color:var(--red);" />
+        </label>
+      ` : ''}
       ${diff.resetLessons.length > 0 ? `
-        <label class="row-between" style="padding:8px 2px 14px;cursor:pointer;gap:10px;">
+        <label class="row-between" style="padding:6px 2px 12px;cursor:pointer;gap:10px;">
           <span style="font-size:13px;">Також очистити слова й SRS для скинутих уроків</span>
           <input type="checkbox" id="m-reset-srs-chk" checked style="width:20px;height:20px;accent-color:var(--blue);" />
         </label>
       ` : ''}
-      <p class="muted" style="font-size:12px;margin:0 0 14px;">Перед збереженням додаток автоматично створить резервну копію (її можна відновити в Налаштуваннях).</p>
+      <p class="muted" style="font-size:12px;margin:6px 0 14px;">Перед збереженням додаток автоматично створить резервну копію (її можна відновити в Налаштуваннях).</p>
       <div style="display:flex;gap:10px;">
         <button class="btn btn-outline btn-full" id="m-edit-back">Назад</button>
         <button class="btn btn-primary btn-full" id="m-edit-apply">✓ Застосувати</button>
@@ -917,12 +1017,19 @@
     document.getElementById('m-edit-back').onclick = closeModal;
     document.getElementById('m-edit-apply').onclick = () => {
       const clearSrs = document.getElementById('m-reset-srs-chk')?.checked ?? true;
+      const doRollbackXp = document.getElementById('m-reset-xp-chk')?.checked ?? false;
       // Save safety snapshot before modifying progress
       saveAutoSnapshot('pre-edit');
 
       state.completedLessons = [...progressDraft.lessons];
       state.completedStories = [...progressDraft.stories];
       state.passedExams = [...progressDraft.exams];
+
+      if (doRollbackXp && rollbackXp > 0) {
+        state.xp = Math.max(0, state.xp - rollbackXp);
+        const dailyFloor = state.dailyPenalty > 0 ? -state.dailyPenalty : 0;
+        state.dailyXp = Math.max(dailyFloor, state.dailyXp - rollbackXp);
+      }
 
       // Clean up words & SRS for reset lessons
       if (clearSrs && diff.resetLessons.length > 0) {
@@ -991,7 +1098,10 @@
     }
 
     initAccordionDefaults();
-    const dailyPct = Math.min(100, Math.round((state.dailyXp / state.dailyGoal) * 100));
+    const isInDebt = state.dailyXp < 0;
+    const dailyPct = isInDebt
+      ? Math.min(100, Math.round((Math.abs(state.dailyXp) / Math.max(1, state.dailyPenalty || state.dailyGoal)) * 100))
+      : Math.min(100, Math.round((state.dailyXp / Math.max(1, state.dailyGoal)) * 100));
     const knownCount = state.knownWords.filter((id) => WORD_MAP[id]).length;
 
     // Dynamic level order & word thresholds (A0 -> A1 -> A2 -> B1 -> B2)
@@ -1044,8 +1154,26 @@
       .filter(({ s }) => state.levelFilter === 'ALL' || s.level === state.levelFilter);
 
     const showWeeklyBanner = !progressEditMode && isWeeklyFileExportDue();
+    const showMissedWarning = !progressEditMode && !isInDebt && state.missedDaysWarning === 1 && state.lastActiveDay !== todayKey();
 
     let html = '';
+
+    if (isInDebt && !progressEditMode) {
+      const needTotal = state.dailyGoal - state.dailyXp;
+      html += `
+        <div class="card missed-penalty-banner">
+          <div style="font-weight:900;font-size:15px;color:var(--red);margin-bottom:4px;">🚨 Штраф за пропуск (${state.missedDaysWarning} дн.): ${state.dailyXp} XP</div>
+          <div class="muted" style="font-size:13px;">Ти пропустив ${state.missedDaysWarning} ${state.missedDaysWarning >= 2 && state.missedDaysWarning <= 4 ? 'дні' : 'днів'} поспіль, тому денна XP пішла в мінус. Набери <strong>${Math.abs(state.dailyXp)} XP</strong>, щоб вийти в нуль (разом до норми: <strong>${needTotal} XP</strong>).</div>
+        </div>
+      `;
+    } else if (showMissedWarning) {
+      html += `
+        <div class="card missed-warn-banner">
+          <div style="font-weight:900;font-size:15px;color:var(--orange);margin-bottom:4px;">⚠️ Попередження: пропущено 1 день!</div>
+          <div class="muted" style="font-size:13px;">Пройди хоча б один урок сьогодні — якщо пропустиш ще один день, завтра XP піде в мінус як покарання і доведеться наверстувати.</div>
+        </div>
+      `;
+    }
 
     if (showWeeklyBanner) {
       html += `
@@ -1067,9 +1195,9 @@
             <div style="font-weight:900;font-size:15px;">🎯 Ціль на сьогодні</div>
             <div class="muted">Модулів: <strong>${LOADED_MODULES.length}</strong> (${ALL_WORDS.length} слів) • Екзаменів: <strong>${state.passedExams.length}/${SECTIONS.length}</strong></div>
           </div>
-          <div style="font-weight:900;color:var(--green);font-size:15px;">${state.dailyXp} / ${state.dailyGoal} XP</div>
+          <div style="font-weight:900;color:${isInDebt ? 'var(--red)' : 'var(--green)'};font-size:15px;">${state.dailyXp} / ${state.dailyGoal} XP</div>
         </div>
-        <div class="goal-bar"><div class="goal-fill" style="width:${dailyPct}%"></div></div>
+        <div class="goal-bar"><div class="goal-fill ${isInDebt ? 'debt' : ''}" style="width:${dailyPct}%"></div></div>
 
         <div class="row-between" style="margin-top:12px;">
           <div class="muted" style="font-weight:700;">${stageTitle}</div>
@@ -2270,7 +2398,9 @@
   function finishSession() {
     SoundFX.win();
     const isExam = activeSession.mode === 'exam';
-    const xp = isExam ? 30 : Math.max(15, activeSession.xpEarned);
+    const xp = isExam
+      ? XP_EXAM
+      : (activeSession.mode === 'lesson' ? XP_LESSON : XP_REVIEW);
     addXP(xp);
 
     if (activeSession.mode === 'lesson' && !state.completedLessons.includes(activeSession.id)) {
@@ -3332,9 +3462,18 @@
           <label class="switch"><input type="checkbox" id="set-dark" ${state.theme === 'dark' ? 'checked' : ''}><span class="slider"></span></label>
         </div>
         <div style="margin-top:10px;">
-          <div class="muted" style="margin-bottom:6px;">Денна ціль XP:</div>
-          <div style="display:flex;gap:8px;">
-            ${[30, 50, 100].map((g) => `<button class="chip-btn ${state.dailyGoal === g ? 'active' : ''}" data-goal="${g}">${g} XP</button>`).join('')}
+          <div class="row-between" style="margin-bottom:6px;">
+            <span class="muted" style="font-weight:700;">Денна норма XP (1 урок = ${XP_LESSON} XP):</span>
+            <span style="font-size:12.5px;font-weight:800;color:var(--green);">~${Math.max(1, Math.round(state.dailyGoal / XP_LESSON))} ур./день</span>
+          </div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">
+            ${[20, 40, 60, 100, 150, 200].map((g) => `<button class="chip-btn ${state.dailyGoal === g ? 'active' : ''}" data-goal="${g}">${g} XP</button>`).join('')}
+          </div>
+          <div class="goal-stepper">
+            <button type="button" class="icon-btn" id="set-goal-minus" aria-label="Зменшити на 10">−10</button>
+            <input type="number" class="text-input goal-num-input" id="set-goal-input" min="10" max="1000" step="10" value="${state.dailyGoal}" />
+            <button type="button" class="icon-btn" id="set-goal-plus" aria-label="Збільшити на 10">+10</button>
+            <button type="button" class="btn btn-primary btn-sm" id="set-goal-save">OK</button>
           </div>
         </div>
       </div>
@@ -3395,9 +3534,21 @@
     };
     document.getElementById('set-dark').onchange = (e) => { state.theme = e.target.checked ? 'dark' : 'light'; applyTheme(); saveState(); };
 
+    function applyDailyGoal(val) {
+      const clamped = Math.max(10, Math.min(1000, Math.round((Number(val) || 60) / 5) * 5));
+      state.dailyGoal = clamped;
+      saveState();
+      renderSettingsTab();
+      showToast(`Денна норма: ${clamped} XP 🎯`);
+    }
     mainView.querySelectorAll('[data-goal]').forEach((b) => {
-      b.onclick = () => { state.dailyGoal = Number(b.dataset.goal); saveState(); renderSettingsTab(); };
+      b.onclick = () => applyDailyGoal(Number(b.dataset.goal));
     });
+    const goalInp = document.getElementById('set-goal-input');
+    document.getElementById('set-goal-minus').onclick = () => applyDailyGoal((Number(goalInp.value) || state.dailyGoal) - 10);
+    document.getElementById('set-goal-plus').onclick = () => applyDailyGoal((Number(goalInp.value) || state.dailyGoal) + 10);
+    document.getElementById('set-goal-save').onclick = () => applyDailyGoal(goalInp.value);
+    goalInp.addEventListener('keydown', (e) => { if (e.key === 'Enter') applyDailyGoal(goalInp.value); });
 
     document.getElementById('set-save-key').onclick = () => {
       state.geminiKey = document.getElementById('set-gemini-key').value.trim();
@@ -3496,7 +3647,14 @@
   applyTheme();
   updateHeader();
 
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) syncDailyRollover(true);
+  });
+  window.addEventListener('focus', () => syncDailyRollover(true));
+  setInterval(() => syncDailyRollover(true), 60000);
+
   discoverModules().then(() => {
+    syncDailyRollover(false);
     checkAutoBackupTimers();
     updateSrsBadge();
     setTab('course');
