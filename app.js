@@ -713,12 +713,52 @@
     initAccordionDefaults();
     const dailyPct = Math.min(100, Math.round((state.dailyXp / state.dailyGoal) * 100));
     const knownCount = state.knownWords.filter((id) => WORD_MAP[id]).length;
-    const targetA1 = Math.max(650, ALL_WORDS.length);
-    const a1Pct = Math.min(100, Math.round((knownCount / targetA1) * 100));
-    const remainA1 = Math.max(0, 650 - knownCount);
 
-    const lvlCounts = { ALL: SECTIONS.length, A0: 0, A1: 0, A2: 0 };
-    SECTIONS.forEach((s) => { if (lvlCounts[s.level] !== undefined) lvlCounts[s.level]++; });
+    // Dynamic level order & word thresholds (A0 -> A1 -> A2 -> B1 -> B2)
+    const LEVEL_ORDER = ['A0', 'A1', 'A2', 'B1', 'B2'];
+    const lvlCounts = { ALL: SECTIONS.length, A0: 0, A1: 0, A2: 0, B1: 0, B2: 0 };
+    const lvlWords = { A0: 0, A1: 0, A2: 0, B1: 0, B2: 0 };
+    SECTIONS.forEach((s) => {
+      if (lvlCounts[s.level] !== undefined) lvlCounts[s.level]++;
+    });
+    ALL_WORDS.forEach((w) => {
+      if (lvlWords[w.level] !== undefined) lvlWords[w.level]++;
+    });
+
+    // Build cumulative milestones for smart level bar
+    const milestones = [];
+    let cum = 0;
+    LEVEL_ORDER.forEach((lv) => {
+      if (lvlWords[lv] > 0) {
+        cum += lvlWords[lv];
+        milestones.push({ level: lv, target: cum });
+      }
+    });
+    let activeStage = milestones[milestones.length - 1] || { level: 'A1', target: Math.max(1, ALL_WORDS.length) };
+    let achievedLevel = '';
+    for (let i = 0; i < milestones.length; i++) {
+      if (knownCount < milestones[i].target) {
+        activeStage = milestones[i];
+        achievedLevel = i > 0 ? milestones[i - 1].level : '';
+        break;
+      }
+      achievedLevel = milestones[i].level;
+    }
+    const allDone = ALL_WORDS.length > 0 && knownCount >= ALL_WORDS.length;
+    const stagePct = Math.min(100, Math.round((knownCount / Math.max(1, activeStage.target)) * 100));
+    const stageRemain = Math.max(0, activeStage.target - knownCount);
+    const stageTitle = allDone
+      ? `🏆 Усі рівні пройдено (${achievedLevel})`
+      : `📈 До рівня ${activeStage.level}${achievedLevel ? ` (закрито ${achievedLevel} ✓)` : ''}`;
+    const stageRight = allDone
+      ? `${knownCount} / ${ALL_WORDS.length} слів 🎉`
+      : `${knownCount} / ${activeStage.target} слів (ще ${stageRemain})`;
+
+    const visibleLevels = ['A0', 'A1', 'A2', 'B1'];
+    if (lvlCounts.B2 > 0) visibleLevels.push('B2');
+    if (state.levelFilter !== 'ALL' && !visibleLevels.includes(state.levelFilter)) {
+      state.levelFilter = 'ALL';
+    }
 
     const filteredSections = SECTIONS.map((s, idx) => ({ s, idx }))
       .filter(({ s }) => state.levelFilter === 'ALL' || s.level === state.levelFilter);
@@ -728,24 +768,24 @@
         <div class="row-between">
           <div>
             <div style="font-weight:900;font-size:15px;">🎯 Ціль на сьогодні</div>
-            <div class="muted">Модулів: <strong>${LOADED_MODULES.length}</strong> • Екзаменів: <strong>${state.passedExams.length}/${SECTIONS.length}</strong></div>
+            <div class="muted">Модулів: <strong>${LOADED_MODULES.length}</strong> (${ALL_WORDS.length} слів) • Екзаменів: <strong>${state.passedExams.length}/${SECTIONS.length}</strong></div>
           </div>
           <div style="font-weight:900;color:var(--green);font-size:15px;">${state.dailyXp} / ${state.dailyGoal} XP</div>
         </div>
         <div class="goal-bar"><div class="goal-fill" style="width:${dailyPct}%"></div></div>
 
         <div class="row-between" style="margin-top:12px;">
-          <div class="muted" style="font-weight:700;">📈 Шкала до рівня A1</div>
-          <div style="font-size:12.5px;font-weight:800;color:var(--blue);">${knownCount} / ${ALL_WORDS.length} слів ${remainA1 > 0 ? `(до A1: ~${remainA1})` : '🎉'}</div>
+          <div class="muted" style="font-weight:700;">${stageTitle}</div>
+          <div style="font-size:12.5px;font-weight:800;color:var(--blue);">${stageRight}</div>
         </div>
-        <div class="goal-bar"><div class="goal-fill blue" style="width:${a1Pct}%"></div></div>
+        <div class="goal-bar"><div class="goal-fill blue" style="width:${stagePct}%"></div></div>
       </div>
 
       <div class="level-tabs" id="level-tabs">
-        <button class="level-tab ${state.levelFilter === 'ALL' ? 'active' : ''}" data-lvl="ALL">Усі (${lvlCounts.ALL})</button>
-        <button class="level-tab ${state.levelFilter === 'A0' ? 'active' : ''}" data-lvl="A0">A0 (${lvlCounts.A0})</button>
-        <button class="level-tab ${state.levelFilter === 'A1' ? 'active' : ''}" data-lvl="A1">A1 (${lvlCounts.A1})</button>
-        <button class="level-tab ${state.levelFilter === 'A2' ? 'active' : ''}" data-lvl="A2">A2 (${lvlCounts.A2})</button>
+        <button class="level-tab ${state.levelFilter === 'ALL' ? 'active' : ''}" data-lvl="ALL" style="font-size:12px;padding:8px 3px;">Усі (${lvlCounts.ALL})</button>
+        ${visibleLevels.map((lv) => `
+          <button class="level-tab ${state.levelFilter === lv ? 'active' : ''}" data-lvl="${lv}" style="font-size:12px;padding:8px 3px;">${lv} (${lvlCounts[lv]})</button>
+        `).join('')}
       </div>
 
       <div class="mode-toggle-bar">
@@ -2030,6 +2070,10 @@
     if (filterKey === 'weak') return weak;
     if (filterKey === 'all') return ALL_WORDS;
     if (filterKey === 'unlocked') return getUnlockedWords();
+    if (filterKey.startsWith('lvl_')) {
+      const lv = filterKey.slice(4);
+      return ALL_WORDS.filter((w) => w.level === lv);
+    }
     return ALL_WORDS.filter((w) => w.sectionId === filterKey);
   }
 
@@ -2168,6 +2212,7 @@
             <button class="chip-btn ${fcFilter === 'due' ? 'active' : ''}" data-f="due">SRS (${dueWords.length})</button>
             <button class="chip-btn ${fcFilter === 'weak' ? 'active' : ''}" data-f="weak">Слабкі (${weakList.length})</button>
             <button class="chip-btn ${fcFilter === 'all' ? 'active' : ''}" data-f="all">Усі (${ALL_WORDS.length})</button>
+            ${['A0', 'A1', 'A2', 'B1'].filter((lv) => ALL_WORDS.some((w) => w.level === lv)).map((lv) => `<button class="chip-btn ${fcFilter === 'lvl_' + lv ? 'active' : ''}" data-f="lvl_${lv}">Рівень ${lv}</button>`).join('')}
             ${SECTIONS.map((s, i) => `<button class="chip-btn ${fcFilter === s.id ? 'active' : ''}" data-f="${s.id}">Розділ ${i + 1}</button>`).join('')}
           </div>
 
@@ -2210,6 +2255,7 @@
             <button class="chip-btn ${audioDeckFilter === 'unlocked' ? 'active' : ''}" data-af="unlocked">Вивчені (${unlockedWords.length})</button>
             <button class="chip-btn ${audioDeckFilter === 'due' ? 'active' : ''}" data-af="due">SRS (${dueWords.length})</button>
             <button class="chip-btn ${audioDeckFilter === 'weak' ? 'active' : ''}" data-af="weak">Слабкі (${weakList.length})</button>
+            ${['A0', 'A1', 'A2', 'B1'].filter((lv) => ALL_WORDS.some((w) => w.level === lv)).map((lv) => `<button class="chip-btn ${audioDeckFilter === 'lvl_' + lv ? 'active' : ''}" data-af="lvl_${lv}">Рівень ${lv}</button>`).join('')}
             ${SECTIONS.map((s, i) => `<button class="chip-btn ${audioDeckFilter === s.id ? 'active' : ''}" data-af="${s.id}">Розділ ${i + 1}</button>`).join('')}
           </div>
 

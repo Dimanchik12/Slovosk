@@ -1,0 +1,324 @@
+==================================================================
+SLOVOSK — ПАСПОРТ КУРСУ (Course Registry for Future Continuity)
+==================================================================
+Призначення: завантаж цей файл у новий чат, щоб продовжити курс
+із m12.js без жодного повтору слів і зі збереженням структури.
+
+Модулів завантажено: 11 (m1.js – m11.js)
+Розділів: 66 | Уроків: 264 | Унікальних слів: 1584
+Розподіл слів за рівнями: A0: 96, A1: 552, A2: 792, B1: 144
+
+НАСТУПНІ ID ДЛЯ ПРОДОВЖЕННЯ (m12.js):
+  - Файл: m12.js (запакувати в m12.zip для Android)
+  - Module id: 'm12', order: 12
+  - Перший розділ: id='m12_s1', нумерація з Розділу 67
+  - Перший урок: id='m12_l67_1', code='67.1'
+  - Перше слово: id='w1585'
+  - Перший діалог: id='m12_st1'
+  - Наступне правило граматики: #46
+
+ФОРМАТ МОДУЛЯ (Schema):
+  window.SLOVOSK_REGISTER({
+    id: 'm12', order: 12, name: '...',
+    sections: [{
+      id: 'm12_s1', level: 'B1', title: 'Розділ 67. ...', subtitle: '...', color: '#58CC02',
+      lessons: [{ // 4 уроки на розділ, по 6 слів + 3 речення + 0..2 grammar
+        id: 'm12_l67_1', code: '67.1', title: '...', icon: '...', desc: '...',
+        words: [{ id: 'w1585', sk: '...', uk: '...', tr: '...', tip: '...' }],
+        sentences: [{ sk: '...', uk: '...', tr: '...' }],
+        grammar: [{ before: '...', after: '...', uk: '...', options: [...], answer: '...', explain: '...' }]
+      }],
+      story: { id: 'm12_st1', title: '...', icon: '...', desc: '...', lines: [
+        { speaker: '...', side: 'l'|'r', sk: '...', uk: '...' },
+        { type: 'question', prompt: '...', options: [...], answer: 0 }
+      ]}
+    }],
+    reference: { falseFriends: [...], grammar: [...], aiScenarios: [...] }
+  });
+
+==================================================================
+СПИСОК РОЗДІЛІВ (66)
+==================================================================
+
+--- m1.js: Модуль 1: Абсолютний нуль → Старт A1 ---
+  [A0] m1_s1 | Розділ 1. Перші слова і читання
+  [A0] m1_s2 | Розділ 2. Я, ти, бути і мати
+  [A0] m1_s3 | Розділ 3. Числа, час і календар
+  [A0] m1_s4 | Розділ 4. Їжа, магазин і житло
+  [A1] m1_s5 | Розділ 5. Перші кроки до роботи
+  [A1] m1_s6 | Розділ 6. Дорога, склад і перша зміна
+
+--- m2.js: Модуль 2: Упевнений A1 (дії, графік, цех і здоров’я) ---
+  [A1] m2_s1 | Розділ 7. Питання, прийменники і «мій/наш»
+  [A1] m2_s2 | Розділ 8. Щоденні дії та спілкування
+  [A1] m2_s3 | Розділ 9. Час, частота і робочий графік
+  [A1] m2_s4 | Розділ 10. У цеху та на складі (просунутий)
+  [A1] m2_s5 | Розділ 11. Опис речей, кольори і стан
+  [A1] m2_s6 | Розділ 12. Здоров’я, аптека і лікарняний
+
+--- m3.js: Модуль 3: Життя в Словаччині A1 (банк, установи, житло, їжа, минулий час) ---
+  [A1] m3_s1 | Розділ 13. Банк, гроші та пошта
+  [A1] m3_s2 | Розділ 14. Установи, поліція і документи
+  [A1] m3_s3 | Розділ 15. Оренда житла і побут
+  [A1] m3_s4 | Розділ 16. Їжа, кухня і готування
+  [A1] m3_s5 | Розділ 17. Одяг, взуття і погода
+  [A1] m3_s6 | Розділ 18. Місто, сім’я і старт минулого часу
+
+--- m4.js: Модуль 4: Фінішна пряма A1 (майбутній час, сервіси, авто, зарплата, порівняння) ---
+  [A1] m4_s1 | Розділ 19. Майбутній час і планування
+  [A1] m4_s2 | Розділ 20. Смартфон, інтернет і сервіси
+  [A1] m4_s3 | Розділ 21. Авто, поїздки і транспорт
+  [A1] m4_s4 | Розділ 22. Робота: зарплата, логістика і розвиток
+  [A1] m4_s5 | Розділ 23. Емоції, думки і вільний час
+  [A1] m4_s6 | Розділ 24. Порівняння та фінальні дієслова A1
+
+--- m5.js: Модуль 5: Завершення A1 → Старт A2 (дати, супермаркет, техніка, умовний спосіб, сервіси) ---
+  [A1] m5_s1 | Розділ 25. Місяці, великі числа і дати
+  [A1] m5_s2 | Розділ 26. Супермаркет: вага, тара і продукти
+  [A1] m5_s3 | Розділ 27. Інструменти, ремонт і безпека
+  [A2] m5_s4 | Розділ 28. Старт A2: ввічливість і аргументи
+  [A2] m5_s5 | Розділ 29. Кар’єра, співбесіда A2 і переговори
+  [A2] m5_s6 | Розділ 30. Рахунки, рекламації і сервіси A2
+
+--- m6.js: Модуль 6: Упевнений A2 (оренда, банк, стоматолог, дипломатія, подорожі, прогрес) ---
+  [A2] m6_s1 | Розділ 31. Пошук житла і огляд квартири
+  [A2] m6_s2 | Розділ 32. Гроші, бюджет і банк A2
+  [A2] m6_s3 | Розділ 33. Стоматолог, тіло і здоровий ритм
+  [A2] m6_s4 | Розділ 34. Живий діалог, прохання і вирішення спорів
+  [A2] m6_s5 | Розділ 35. Подорожі, гори і дозвілля
+  [A2] m6_s6 | Розділ 36. Прогрес, послідовність і впевнений A2
+
+--- m7.js: Модуль 7: Рубіж 1000+ слів A2 (авто, кухня, виробництво, медіа, 112, мислення) ---
+  [A2] m7_s1 | Розділ 37. Авто, правила дороги і техдопомога
+  [A2] m7_s2 | Розділ 38. Кухня, рецепти і кафе A2
+  [A2] m7_s3 | Розділ 39. Виробництво, якість і зміна A2
+  [A2] m7_s4 | Розділ 40. Навчання, медіа і спільнота
+  [A2] m7_s5 | Розділ 41. Екологія, стихія і екстрені служби
+  [A2] m7_s6 | Розділ 42. Впевнене мислення A2 і рубіж 1000+ слів
+
+--- m8.js: Модуль 8: Високий A2 (ділове листування, ремонт, податки, стиль, спорт і фініш A2) ---
+  [A2] m8_s1 | Розділ 43. Ділове листування і дзвінки A2
+  [A2] m8_s2 | Розділ 44. Електроніка, побут і домашній ремонт
+  [A2] m8_s3 | Розділ 45. Податки, страхування і нотаріус A2
+  [A2] m8_s4 | Розділ 46. Зовнішність, догляд і стиль
+  [A2] m8_s5 | Розділ 47. Спорт, ігри, музика і друзі
+  [A2] m8_s6 | Розділ 48. Високий A2: нюанси мови та фініш
+
+--- m9.js: Модуль 9: Повний A2+ (пошта/митниця, мікроклімат, свята, кібербезпека, баланс, вільна мова) ---
+  [A2] m9_s1 | Розділ 49. Пошта, митниця і міжнародні перекази
+  [A2] m9_s2 | Розділ 50. Дім, мікроклімат і чистота
+  [A2] m9_s3 | Розділ 51. Свята, традиції і культура
+  [A2] m9_s4 | Розділ 52. Цифрова безпека, мережі та гаджети
+  [A2] m9_s5 | Розділ 53. Психологія, стрес і здорові стосунки
+  [A2] m9_s6 | Розділ 54. Вільне мовлення A2+ (1296 слів)
+
+--- m10.js: Модуль 10: Фінал рівня A2 (1440 слів: професії, аеропорт, природа, фінанси, етикет) ---
+  [A2] m10_s1 | Розділ 55. Професії, цех і робочий простір
+  [A2] m10_s2 | Розділ 56. Аеропорт, готель і подорожі A2
+  [A2] m10_s3 | Розділ 57. Природа, тварини і пори доби
+  [A2] m10_s4 | Розділ 58. Економіка, ринок і фінансове мислення
+  [A2] m10_s5 | Розділ 59. Суспільство, етикет і взаємодія
+  [A2] m10_s6 | Розділ 60. Фінал рівня A2 (1440 слів!)
+
+--- m11.js: Модуль 11: Старт рівня B1 (дискусія, проєкти, технології/ШІ, будівництво, право, емоції) ---
+  [B1] m11_s1 | Розділ 61. Старт B1: аргументація і дискусія
+  [B1] m11_s2 | Розділ 62. Проєкти, ефективність і лідерство
+  [B1] m11_s3 | Розділ 63. Технології, автоматизація і ШІ
+  [B1] m11_s4 | Розділ 64. Будівництво, нерухомість і ремонт
+  [B1] m11_s5 | Розділ 65. Право, контракти і захист прав B1
+  [B1] m11_s6 | Розділ 66. Тонкі емоції, мислення і виразність B1
+
+==================================================================
+СЦЕНАРІЇ ШІ-ЧАТУ (14)
+==================================================================
+interview (💼 Співбесіда), shift (🏭 На зміні), shop (🛒 Магазин), grammar (📚 Репетитор), doctor (💊 Аптека / Лікар), office (🏛️ Установа / Банк), transport (🚆 Вокзал / Дорога), service (🧾 Сервіс / Оренда A2), housing (🏢 Оренда житла A2), restaurant (🍽️ Ресторан / Кафе A2), smalltalk (☕ Кава з колегою A2), autoservis (🚗 Автосервіс / Дорога A2), exam_a2 (🎓 Фінальний іспит A2), debate_b1 (⚖️ Дискусія B1)
+
+==================================================================
+ПРАВИЛА ГРАМАТИКИ (45)
+==================================================================
+  - 1. Дієслово «byť» (бути) — головна база
+  - 2. Дієслово «mať» (мати)
+  - 3. Заперечення «ne-» пишеться РАЗОМ
+  - 4. Модальні дієслова + інфінітив (-ť)
+  - 5. Ввічливість (Викання — Vykanie)
+  - 6. Прийменники «де?» і «куди?» (v / na / do / z)
+  - 7. Теперішній час регулярних дієслів (я / ти / він)
+  - 8. Присвійні займенники за родами
+  - 9. Короткі робочі команди (Наказовий спосіб)
+  - 10. Минулий час (як утворити за 10 секунд)
+  - 11. Суперввічливе «Я хотів би...» (Chcel by som)
+  - 12. Прийменники часу (od / do / po / pred)
+  - 13. Зручне «Je mi...» (Мені холодно/тепло/краще)
+  - 14. Майбутній час (Budúci čas)
+  - 15. Порівняння прикметників (-ší / -ejší + ako)
+  - 16. Корисна зв’язка «же» (že = що)
+  - 17. Вказівки на дверях і кнопках (виживання в місті)
+  - 18. Умовний спосіб (Kondicionál — ввічливі прохання A2)
+  - 19. Місяці з прийменником «v» (коли?)
+  - 20. «Pretože» vs «Preto» (Причина vs Наслідок)
+  - 21. Важливі зв’язки A2 для довгих речень
+  - 22. Доконаний і недоконаний вид (Процес vs Результат)
+  - 23. Зворотні дієслова з «sa» та «si» (порядок слів!)
+  - 24. «Aby» (Щоб) для мети й прохань A2
+  - 25. Нумерація поверхів у Словаччині
+  - 26. Зворотне «si» (для себе)
+  - 27. Дієслова з фіксованими прийменниками (A2)
+  - 28. «Medzi» (Між) + Орудний відмінок
+  - 29. Назви екстрених номерів у Словаччині
+  - 30. Як написати ідеальний діловий e-mail словацькою
+  - 31. «Vôbec» і подвійне заперечення
+  - 32. Прийменник «voči» та «podľa» (A2)
+  - 33. Корисні переходи для зв’язної мови
+  - 34. «V každom prípade / Práve naopak / Mimochodom»
+  - 35. Як казати «десь / ніде / всюди / хтось / ніхто»
+  - 36. Пасивні форми на -ný / -tý (Офіційна мова й анкети)
+  - 37. Звертання та привітання до свят (Давальний відмінок)
+  - 38. «Keby» vs «Ak / Keď» (Нереальна vs Реальна умова)
+  - 39. «Pokiaľ viem / V skutočnosti / Napriek tomu»
+  - 40. Ступенювання прислівників (Як? → Краще / Вільніше)
+  - 41. Чекліст рівня A2 — що ти тепер умієш (1440 слів!)
+  - 42. Дієприкметники та слова на -ný / -tý в активній мові B1
+  - 43. Вставні конструкції для аргументації B1
+  - 44. Порядок слова «totiž» (пояснення причини)
+  - 45. Складотворчі довгі «ŕ» та «ĺ» (рівень профі)
+
+==================================================================
+ФАЛЬШИВІ ДРУЗІ (74)
+==================================================================
+Pozor!, Čerstvý, Hľadať, Ovocie, Úžasný, Zápach, Voňať, Zlý, Život, Bývať, Rodina, Hodina, Divadlo, Stôl / Kreslo, Skoro, Zľava, Doprava, Látka, Hrozný, Kúpiť / Predať, Kúrenie, Zemiaky, Pohár, Oblek, Ponožky, Úroda, Presný, Hrubý, Zápcha, Tlačiť, Cesta, Úspech, Plyn, Fľaša, Korenie, Šikovný, Vybaviť, Zrušiť, Pivnica, Mena / Meno, Čoskoro, Poschodie, Prehliadka, Starať sa, Horký / Horúci, Nápad, Kyslý, Dodávka, Kufor, Príloha, Tvár, Zápas, Vrecko, Odvod, Pozdrav, Poistka, Pozorný, Hádka, Slušný, Zvážiť, Tlak, Strop, Sporiť, Priemer, Svieži / Čerstvý, Počúvať / Počuť, Pokus, Kopec, Porada / Rada, Škoda, Drevo / Strom, Údaje, Totiž, Návod
+
+==================================================================
+ПОВНИЙ РЕЄСТР СЛІВ (1584: w001 – w1584)
+==================================================================
+[A0] Розділ 1. Перші слова і читання:
+  w001:Ahoj | w002:Áno | w003:Nie | w004:Prosím | w005:Ďakujem | w006:Dobrý deň | w007:Čaj | w008:Džús | w009:Kľúč | w010:Stôl | w011:Šéf | w012:Žena | w013:Dobré ráno | w014:Dobrý večer | w015:Dovidenia | w016:Prepáčte | w017:Dobre | w018:Pomoc | w019:Tu | w020:Tam | w021:To | w022:A | w023:Ale | w024:Kde
+[A0] Розділ 2. Я, ти, бути і мати:
+  w025:Ja | w026:Ty | w027:On | w028:Ona | w029:My | w030:Vy | w031:Som | w032:Si | w033:Je | w034:Sme | w035:Ste | w036:Nie je | w037:Volám sa | w038:Meno | w039:Ukrajina | w040:Slovensko | w041:Odkiaľ | w042:Rozumiem | w043:Mám | w044:Máš | w045:Má | w046:Nemám | w047:Pas | w048:Telefón
+[A0] Розділ 3. Числа, час і календар:
+  w049:Jeden | w050:Dva | w051:Tri | w052:Štyri | w053:Päť | w054:Šesť | w055:Sedem | w056:Osem | w057:Deväť | w058:Desať | w059:Dvadsať | w060:Sto | w061:Hodina | w062:Minúta | w063:Ráno | w064:Večer | w065:Dnes | w066:Zajtra | w067:Pondelok | w068:Utorok | w069:Streda | w070:Štvrtok | w071:Piatok | w072:Víkend
+[A0] Розділ 4. Їжа, магазин і житло:
+  w073:Chlieb | w074:Voda | w075:Mlieko | w076:Mäso | w077:Syr | w078:Vajce | w079:Obchod | w080:Cena | w081:Euro | w082:Karta | w083:Hotovosť | w084:Bloček | w085:Byt | w086:Izba | w087:Posteľ | w088:Kuchyňa | w089:Kúpeľňa | w090:Adresa | w091:Veľký | w092:Malý | w093:Nový | w094:Starý | w095:Dobrý | w096:Zlý
+[A1] Розділ 5. Перші кроки до роботи:
+  w097:Práca | w098:Zmluva | w099:Životopis | w100:Plat | w101:Zmena | w102:Prestávka | w103:Pracovať | w104:Hľadať | w105:Začať | w106:Skončiť | w107:Čakať | w108:Pomôcť | w109:Chcem | w110:Môžem | w111:Musím | w112:Potrebujem | w113:Viem | w114:Neviem | w115:Skúsenosť | w116:Nástup | w117:Vodičský preukaz | w118:Ranná zmena | w119:Nočná zmena | w120:Spoľahlivý
+[A1] Розділ 6. Дорога, склад і перша зміна:
+  w121:Ulica | w122:Stanica | w123:Zastávka | w124:Vľavo | w125:Vpravo | w126:Rovno | w127:Autobus | w128:Vlak | w129:Lístok | w130:Meškanie | w131:Vystúpiť | w132:Ísť | w133:Sklad | w134:Krabica | w135:Paleta | w136:Stroj | w137:Chyba | w138:Pozor! | w139:Vedúci | w140:Majster | w141:Kolega | w142:Nefunguje | w143:Hotovo | w144:V poriadku
+[A1] Розділ 7. Питання, прийменники і «мій/наш»:
+  w145:Kto | w146:Čo | w147:Kedy | w148:Prečo | w149:Ako | w150:Koľko | w151:V | w152:Na | w153:Do | w154:Z | w155:Pred | w156:Za | w157:S | w158:Bez | w159:Pre | w160:Pretože | w161:Keď | w162:Teraz | w163:Môj | w164:Tvoj | w165:Náš | w166:Váš | w167:Jeho | w168:Jej
+[A1] Розділ 8. Щоденні дії та спілкування:
+  w169:Robiť | w170:Dať | w171:Vziať | w172:Kúpiť | w173:Platiť | w174:Nájsť | w175:Hovoriť | w176:Povedať | w177:Pýtať sa | w178:Odpovedať | w179:Počuť | w180:Vidieť | w181:Prísť | w182:Odísť | w183:Bývať | w184:Spať | w185:Jesť | w186:Piť | w187:Čítať | w188:Písať | w189:Učiť sa | w190:Poslať | w191:Volať | w192:Podpísať
+[A1] Розділ 9. Час, частота і робочий графік:
+  w193:Včera | w194:Týždeň | w195:Mesiac | w196:Rok | w197:Deň | w198:Noc | w199:Vždy | w200:Často | w201:Niekedy | w202:Nikdy | w203:Už | w204:Ešte | w205:Rýchlo | w206:Pomaly | w207:Skoro | w208:Neskoro | w209:Hneď | w210:Potom | w211:Sobota | w212:Nedeľa | w213:Poobede | w214:Obed | w215:Dovolenka | w216:Nadčas
+[A1] Розділ 10. У цеху та на складі (просунутий):
+  w217:Priniesť | w218:Položiť | w219:Otvoriť | w220:Zatvoriť | w221:Zapnúť | w222:Vypnúť | w223:Skontrolovať | w224:Opraviť | w225:Vyčistiť | w226:Zabaliť | w227:Naložiť | w228:Vyložiť | w229:Materiál | w230:Kvalita | w231:Kus | w232:Váha | w233:Štítok | w234:Skener | w235:Rukavice | w236:Obuv | w237:Vesta | w238:Prilba | w239:Vchod | w240:Východ
+[A1] Розділ 11. Опис речей, кольори і стан:
+  w241:Ťažký | w242:Ľahký | w243:Plný | w244:Prázdny | w245:Čistý | w246:Špinavý | w247:Teplý | w248:Studený | w249:Lacný | w250:Drahý | w251:Voľný | w252:Obsadený | w253:Biely | w254:Čierny | w255:Červený | w256:Zelený | w257:Modrý | w258:Žltý | w259:Unavený | w260:Chorý | w261:Zdravý | w262:Spokojný | w263:Hladný | w264:Smädný
+[A1] Розділ 12. Здоров’я, аптека і лікарняний:
+  w265:Hlava | w266:Ruka | w267:Noha | w268:Chrbát | w269:Brucho | w270:Hrdlo | w271:Bolesť | w272:Bolí ma | w273:Teplota | w274:Kašeľ | w275:Nádcha | w276:Úraz | w277:Lekáreň | w278:Lekár | w279:Nemocnica | w280:Liek | w281:Recept | w282:Poistenie | w283:PN-ka | w284:Termín | w285:Potvrdenie | w286:Oddychovať | w287:Užívať | w288:Lepšie
+[A1] Розділ 13. Банк, гроші та пошта:
+  w289:Banka | w290:Účet | w291:Bankomat | w292:Peniaze | w293:Výplata | w294:Prevod | w295:Vybrať | w296:Vložiť | w297:Zaplatiť | w298:Požičať | w299:Ušetriť | w300:Zľava | w301:Pošta | w302:Balík | w303:List | w304:Obálka | w305:Zásielka | w306:Podpis | w307:Doručiť | w308:Prevziať | w309:Odoslať | w310:Kuriér | w311:Oznam | w312:Otvorené
+[A1] Розділ 14. Установи, поліція і документи:
+  w313:Polícia | w314:Úrad | w315:Pobyt | w316:Doklad | w317:Žiadosť | w318:Formulár | w319:Priezvisko | w320:Dátum | w321:Narodenie | w322:Občianstvo | w323:Číslo | w324:Pečiatka | w325:Vyplniť | w326:Predĺžiť | w327:Overiť | w328:Nahlásiť | w329:Zmeniť | w330:Kópia | w331:Riadok | w332:Pokuta | w333:Zákon | w334:Právo | w335:Tlmočník | w336:Poradie
+[A1] Розділ 15. Оренда житла і побут:
+  w337:Prenájom | w338:Nájomné | w339:Kaucia | w340:Majiteľ | w341:Sused | w342:Ubytovňa | w343:Stolička | w344:Skriňa | w345:Okno | w346:Dvere | w347:Svetlo | w348:Kúrenie | w349:Chladnička | w350:Práčka | w351:Sporák | w352:Mikrovlnka | w353:Zásuvka | w354:Internet | w355:Upratať | w356:Oprať | w357:Uvariť | w358:Smetie | w359:Pokaziť sa | w360:Tečie
+[A1] Розділ 16. Їжа, кухня і готування:
+  w361:Zemiaky | w362:Paradajka | w363:Cibuľa | w364:Uhorka | w365:Jablko | w366:Banán | w367:Kuracie | w368:Ryža | w369:Cestoviny | w370:Polievka | w371:Maslo | w372:Olej | w373:Káva | w374:Soľ | w375:Cukor | w376:Sladký | w377:Slaný | w378:Čerstvý | w379:Tanier | w380:Nôž | w381:Vidlička | w382:Lyžica | w383:Pohár | w384:Panvica
+[A1] Розділ 17. Одяг, взуття і погода:
+  w385:Tričko | w386:Mikina | w387:Nohavice | w388:Bunda | w389:Ponožky | w390:Čiapka | w391:Tenisky | w392:Veľkosť | w393:Skúsiť | w394:Kabínka | w395:Vymeniť | w396:Sedí | w397:Počasie | w398:Slnko | w399:Dážď | w400:Sneh | w401:Vietor | w402:Mráz | w403:Jar | w404:Leto | w405:Jeseň | w406:Zima | w407:Teplo | w408:Chladno
+[A1] Розділ 18. Місто, сім’я і старт минулого часу:
+  w409:Centrum | w410:Námestie | w411:Park | w412:Reštaurácia | w413:Most | w414:Parkovisko | w415:Rodina | w416:Rodičia | w417:Otec | w418:Mama | w419:Brat | w420:Sestra | w421:Kamarát | w422:Človek | w423:Ľudia | w424:Muž | w425:Dieťa | w426:Stretnúť | w427:Bol som | w428:Mal som | w429:Pracoval som | w430:Išiel som | w431:Kúpil som | w432:Videl som
+[A1] Розділ 19. Майбутній час і планування:
+  w433:Budem | w434:Budeš | w435:Bude | w436:Budeme | w437:Budete | w438:Budú | w439:Minulý | w440:Budúci | w441:Sviatok | w442:Plán | w443:Cieľ | w444:Voľno | w445:Veľa | w446:Málo | w447:Trochu | w448:Dosť | w449:Všetko | w450:Nič | w451:Spolu | w452:Sám | w453:Možno | w454:Určite | w455:Tiež | w456:Len
+[A1] Розділ 20. Смартфон, інтернет і сервіси:
+  w457:Batéria | w458:Nabíjačka | w459:Slúchadlá | w460:Obrazovka | w461:Signál | w462:Paušál | w463:Správa | w464:Heslo | w465:Aplikácia | w466:Odkaz | w467:Stiahnuť | w468:Prihlásiť sa | w469:Objednať | w470:Objednávka | w471:Košík | w472:Záruka | w473:Vrátiť | w474:Zadarmo | w475:Počítač | w476:Súbor | w477:Fotka | w478:Vytlačiť | w479:Uložiť | w480:Vymazať
+[A1] Розділ 21. Авто, поїздки і транспорт:
+  w481:Nástupište | w482:Odchod | w483:Príchod | w484:Prestup | w485:Cestovný poriadok | w486:Batožina | w487:Auto | w488:Šofér | w489:Benzín | w490:Pumpa | w491:Šoférovať | w492:Parkovať | w493:Cesta | w494:Križovatka | w495:Semafor | w496:Zápcha | w497:Rýchlosť | w498:Mapa | w499:Blízko | w500:Ďaleko | w501:Odbočiť | w502:Zastaviť | w503:Nastúpiť | w504:Meškať
+[A1] Розділ 22. Робота: зарплата, логістика і розвиток:
+  w505:Výplatná páska | w506:Príplatok | w507:Bonus | w508:Daň | w509:Hrubý | w510:Stravné | w511:Kamión | w512:Rampa | w513:Tovar | w514:Náklad | w515:Dodací list | w516:Vozík | w517:Školenie | w518:Kurz | w519:Pravidlo | w520:Úloha | w521:Tím | w522:Firma | w523:Zamestnávateľ | w524:Zamestnanec | w525:Skúšobná doba | w526:Výpoveď | w527:Pozícia | w528:Načas
+[A1] Розділ 23. Емоції, думки і вільний час:
+  w529:Rád | w530:Pokojný | w531:Nervózny | w532:Nahnevaný | w533:Prekvapený | w534:Istý | w535:Milý | w536:Priateľský | w537:Čestný | w538:Presný | w539:Trpezlivý | w540:Zaneprázdnený | w541:Myslieť | w542:Súhlasiť | w543:Dúfať | w544:Pamätať si | w545:Zabudnúť | w546:Páčiť sa | w547:Kino | w548:Film | w549:Hudba | w550:Prechádzka | w551:Šport | w552:Kniha
+[A1] Розділ 24. Порівняння та фінальні дієслова A1:
+  w553:Lepší | w554:Horší | w555:Väčší | w556:Menší | w557:Lacnejší | w558:Rýchlejší | w559:Vysvetliť | w560:Ukázať | w561:Zopakovať | w562:Preložiť | w563:Skúšať | w564:Zostať | w565:Držať | w566:Stlačiť | w567:Tlačidlo | w568:Ťahať | w569:Tlačiť | w570:Niesť | w571:Stratiť | w572:Zamknúť | w573:Dôležitý | w574:Možný | w575:Jednoduchý | w576:Úspech
+[A1] Розділ 25. Місяці, великі числа і дати:
+  w577:Január | w578:Február | w579:Marec | w580:Apríl | w581:Máj | w582:Jún | w583:Júl | w584:August | w585:September | w586:Október | w587:November | w588:December | w589:Tridsať | w590:Štyridsať | w591:Päťdesiat | w592:Tisíc | w593:Polovica | w594:Štvrť | w595:Prvý | w596:Druhý | w597:Tretí | w598:Štvrtý | w599:Posledný | w600:Ďalší
+[A1] Розділ 26. Супермаркет: вага, тара і продукти:
+  w601:Kilogram | w602:Gram | w603:Liter | w604:Fľaša | w605:Balenie | w606:Taška | w607:Rožok | w608:Múka | w609:Vločky | w610:Kečup | w611:Korenie | w612:Med | w613:Bravčové | w614:Šunka | w615:Tvaroh | w616:Jogurt | w617:Cesnak | w618:Mrkva | w619:Spotreba | w620:Akcia | w621:Výber | w622:Mrazený | w623:Pečený | w624:Varený
+[A1] Розділ 27. Інструменти, ремонт і безпека:
+  w625:Skrutkovač | w626:Kladivo | w627:Kliešte | w628:Meter | w629:Kábel | w630:Skrutka | w631:Zmerať | w632:Odrezať | w633:Spojiť | w634:Utiahnuť | w635:Pripojiť | w636:Odpojiť | w637:Nebezpečenstvo | w638:Zákaz | w639:Požiar | w640:Alarm | w641:Okuliare | w642:Lekárnička | w643:Prúd | w644:Zvuk | w645:Dym | w646:Porucha | w647:Diel | w648:Náhradný
+[A2] Розділ 28. Старт A2: ввічливість і аргументи:
+  w649:Chcel by som | w650:Mohol by som | w651:Bolo by | w652:Keby | w653:Radšej | w654:Naozaj | w655:Poradiť | w656:Požiadať | w657:Navrhnúť | w658:Dohodnúť sa | w659:Sľúbiť | w660:Odmietnuť | w661:Preto | w662:Hoci | w663:Avšak | w664:Okrem | w665:Napriek | w666:Takže | w667:Názor | w668:Dôvod | w669:Výhoda | w670:Nevýhoda | w671:Rozhodnutie | w672:Riešenie
+[A2] Розділ 29. Кар’єра, співбесіда A2 і переговори:
+  w673:Zodpovedný | w674:Samostatný | w675:Flexibilný | w676:Šikovný | w677:Ochotný | w678:Skúsený | w679:Odbor | w680:Zručnosť | w681:Prax | w682:Postup | w683:Zvýšenie | w684:Podmienka | w685:Ponuka | w686:Pohovor | w687:Uchádzač | w688:Podpísaný | w689:Platný | w690:Dohoda | w691:Spolupráca | w692:Podpora | w693:Zodpovednosť | w694:Rešpekt | w695:Pripomienka | w696:Pochvala
+[A2] Розділ 30. Рахунки, рекламації і сервіси A2:
+  w697:Faktúra | w698:Energia | w699:Elektrina | w700:Plyn | w701:Splatnosť | w702:Nedoplatok | w703:Reklamácia | w704:Poškodený | w705:Chybný | w706:Výmena | w707:Vrátenie | w708:Servis | w709:Kaderníctvo | w710:Čistiareň | w711:Autoservis | w712:Posilňovňa | w713:Knižnica | w714:Oprava | w715:Vybaviť | w716:Vyriešiť | w717:Zariadiť | w718:Zistiť | w719:Zrušiť | w720:Potvrdiť
+[A2] Розділ 31. Пошук житла і огляд квартири:
+  w721:Inzerát | w722:Garsónka | w723:Poschodie | w724:Výťah | w725:Balkón | w726:Zariadený | w727:Obhliadka | w728:Sťahovanie | w729:Sťahovať sa | w730:Vybavenie | w731:Pivnica | w732:Schody | w733:Lehota | w734:Záloha | w735:Trvalý | w736:Dočasný | w737:Pripojenie | w738:Stabilný | w739:Tichý | w740:Hlučný | w741:Svetlý | w742:Tmavý | w743:Priestranný | w744:Pohodlný
+[A2] Розділ 32. Гроші, бюджет і банк A2:
+  w745:Príjem | w746:Výdavok | w747:Rozpočet | w748:Úspory | w749:Poplatok | w750:Mena | w751:Výpis | w752:Limit | w753:Zablokovať | w754:Odblokovať | w755:Prepočítať | w756:Zarobiť | w757:Hodnota | w758:Zisk | w759:Strata | w760:Splátka | w761:Úver | w762:Dlžiť | w763:Oplatí sa | w764:Drahší | w765:Dostupný | w766:Zbytočný | w767:Spravodlivý | w768:Spoľahnúť sa
+[A2] Розділ 33. Стоматолог, тіло і здоровий ритм:
+  w769:Zubár | w770:Zub | w771:Prehliadka | w772:Plomba | w773:Injekcia | w774:Vyšetrenie | w775:Oko | w776:Ucho | w777:Krk | w778:Rameno | w779:Koleno | w780:Zranenie | w781:Alergia | w782:Závrat | w783:Slabosť | w784:Predpísať | w785:Vyliečiť sa | w786:Dodržiavať | w787:Pohyb | w788:Spánok | w789:Strava | w790:Vitamín | w791:Zvyk | w792:Pravidelný
+[A2] Розділ 34. Живий діалог, прохання і вирішення спорів:
+  w793:Rozhovor | w794:Nedorozumenie | w795:Otázka | w796:Odpoveď | w797:Vysvetlenie | w798:Sťažnosť | w799:Ospravedlniť sa | w800:Upozorniť | w801:Pripomenúť | w802:Sťažovať sa | w803:Obávať sa | w804:Prekvapiť | w805:Vlastne | w806:Napríklad | w807:Samozrejme | w808:Bohužiaľ | w809:Našťastie | w810:Najmä | w811:Zrozumiteľný | w812:Jasný | w813:Naliehavý | w814:Závažný | w815:Zaujímavý | w816:Užitočný
+[A2] Розділ 35. Подорожі, гори і дозвілля:
+  w817:Výlet | w818:Hory | w819:Jazero | w820:Les | w821:Príroda | w822:Pamiatka | w823:Rezervácia | w824:Recepcia | w825:Ubytovanie | w826:Raňajky | w827:Večera | w828:Zahrnutý | w829:Koncert | w830:Vstupenka | w831:Podujatie | w832:Zážitok | w833:Pozvať | w834:Užiť si | w835:Cestovať | w836:Navštíviť | w837:Objaviť | w838:Fotiť | w839:Behať | w840:Cvičiť
+[A2] Розділ 36. Прогрес, послідовність і впевнений A2:
+  w841:Zlepšiť sa | w842:Naučiť sa | w843:Zvyknúť si | w844:Podariť sa | w845:Pokračovať | w846:Dosiahnuť | w847:Najprv | w848:Medzitým | w849:Nakoniec | w850:Nedávno | w851:Čoskoro | w852:Vopred | w853:Pripraviť | w854:Porovnať | w855:Vyhnúť sa | w856:Zúčastniť sa | w857:Starať sa | w858:Sústrediť sa | w859:Skúška | w860:Pokrok | w861:Príležitosť | w862:Budúcnosť | w863:Istota | w864:Spokojnosť
+[A2] Розділ 37. Авто, правила дороги і техдопомога:
+  w865:Motor | w866:Brzda | w867:Pneumatika | w868:Svetlomet | w869:Volant | w870:Kufor | w871:Značka | w872:Prednosť | w873:Prechod | w874:Diaľnica | w875:Diaľničná známka | w876:Kontrola | w877:Nehoda | w878:Defekt | w879:Odťahovka | w880:Poškodenie | w881:Svedok | w882:Poisťovňa | w883:Natankovať | w884:Zabrzdiť | w885:Predbehnúť | w886:Cúvať | w887:Naštartovať | w888:Pripútať sa
+[A2] Розділ 38. Кухня, рецепти і кафе A2:
+  w889:Krájať | w890:Miešať | w891:Smažiť | w892:Piecť | w893:Variť | w894:Zohriať | w895:Hrniec | w896:Doska | w897:Rúra | w898:Kanvica | w899:Miska | w900:Dóza | w901:Jedálny lístok | w902:Porcia | w903:Príloha | w904:Dezert | w905:Prepitné | w906:Obsluha | w907:Chutný | w908:Pikantný | w909:Kyslý | w910:Horký | w911:Surový | w912:Sýty
+[A2] Розділ 39. Виробництво, якість і зміна A2:
+  w913:Výroba | w914:Linka | w915:Norma | w916:Séria | w917:Vzorka | w918:Dávka | w919:Nepodarok | w920:Odchýlka | w921:Škrabanec | w922:Prasklina | w923:Rozmer | w924:Presnosť | w925:Výkaz | w926:Protokol | w927:Evidencia | w928:Inventúra | w929:Dodávka | w930:Skladovanie | w931:Nastaviť | w932:Označiť | w933:Zoradiť | w934:Rozdeliť | w935:Zaznamenať | w936:Nahradiť
+[A2] Розділ 40. Навчання, медіа і спільнота:
+  w937:Novinky | w938:Článok | w939:Udalosť | w940:Rádio | w941:Televízia | w942:Reklama | w943:Vzdelanie | w944:Certifikát | w945:Diplom | w946:Úroveň | w947:Začiatočník | w948:Pokročilý | w949:Dobrovoľník | w950:Komunita | w951:Aktivita | w952:Záujem | w953:Nápad | w954:Klub | w955:Sledovať | w956:Zdieľať | w957:Komentovať | w958:Vyhľadať | w959:Diskutovať | w960:Odporúčať
+[A2] Розділ 41. Екологія, стихія і екстрені служби:
+  w961:Búrka | w962:Blesk | w963:Hmla | w964:Oblak | w965:Stupeň | w966:Predpoveď | w967:Triedenie | w968:Plast | w969:Papier | w970:Sklo | w971:Kontajner | w972:Kov | w973:Záchranka | w974:Hasiči | w975:Tiesňová linka | w976:Nebezpečný | w977:Zachrániť | w978:Privolať | w979:Hore | w980:Dole | w981:Vnútri | w982:Vonku | w983:Oproti | w984:Vedľa
+[A2] Розділ 42. Впевнене мислення A2 і рубіж 1000+ слів:
+  w985:Výsledok | w986:Rozdiel | w987:Situácia | w988:Prostredie | w989:Súvislosť | w990:Výnimka | w991:Predtým | w992:Neskôr | w993:Zatiaľ | w994:Práve | w995:Neustále | w996:Občas | w997:Zvládnuť | w998:Pochopiť | w999:Všimnúť si | w1000:Predpokladať | w1001:Závisieť | w1002:Zaslúžiť si | w1003:Úspešný | w1004:Spoľahlivosť | w1005:Samostatnosť | w1006:Odhodlaný | w1007:Sebavedomý | w1008:Výborný
+[A2] Розділ 43. Ділове листування і дзвінки A2:
+  w1009:Predmet | w1010:Oslovenie | w1011:Pozdrav | w1012:Odosielateľ | w1013:Príjemca | w1014:Obsah | w1015:Odpísať | w1016:Preposlať | w1017:Priložiť | w1018:Poďakovať | w1019:Upresniť | w1020:Uviesť | w1021:Vážený | w1022:Priložený | w1023:Aktuálny | w1024:Dodatočný | w1025:Kompletný | w1026:Písomný | w1027:Hovor | w1028:Zmeškaný | w1029:Spojenie | w1030:Kontakt | w1031:Ozvať sa | w1032:Zdvihnúť
+[A2] Розділ 44. Електроніка, побут і домашній ремонт:
+  w1033:Napätie | w1034:Spínač | w1035:Poistka | w1036:Konektor | w1037:Zariadenie | w1038:Súčiastka | w1039:Nabíjať | w1040:Testovať | w1041:Prehriať sa | w1042:Reštartovať | w1043:Aktualizovať | w1044:Nainštalovať | w1045:Kohútik | w1046:Radiátor | w1047:Ventil | w1048:Tesnenie | w1049:Žiarovka | w1050:Vypínač | w1051:Funkčný | w1052:Pokazený | w1053:Uvoľnený | w1054:Pevný | w1055:Odolný | w1056:Bezpečný
+[A2] Розділ 45. Податки, страхування і нотаріус A2:
+  w1057:Odvod | w1058:Dôchodok | w1059:Príspevok | w1060:Nárok | w1061:Vyúčtovanie | w1062:Sociálna poisťovňa | w1063:Daňové priznanie | w1064:Ročný | w1065:Zamestnanie | w1066:Živnosť | w1067:Účtovníčka | w1068:Povinný | w1069:Notár | w1070:Plná moc | w1071:Originál | w1072:Preklad | w1073:Platnosť | w1074:Register | w1075:Predložiť | w1076:Schváliť | w1077:Zamietnuť | w1078:Doložiť | w1079:Zaregistrovať | w1080:Vyžadovať
+[A2] Розділ 46. Зовнішність, догляд і стиль:
+  w1081:Postava | w1082:Vysoký | w1083:Nízky | w1084:Vlasy | w1085:Brada | w1086:Tvár | w1087:Holenie | w1088:Žiletka | w1089:Mydlo | w1090:Šampón | w1091:Uterák | w1092:Kefka | w1093:Bavlna | w1094:Koža | w1095:Zips | w1096:Vrecko | w1097:Podrážka | w1098:Žehliť | w1099:Upravený | w1100:Moderný | w1101:Široký | w1102:Tesný | w1103:Kvalitný | w1104:Ostrihať
+[A2] Розділ 47. Спорт, ігри, музика і друзі:
+  w1105:Tréning | w1106:Rozcvička | w1107:Sval | w1108:Kondícia | w1109:Krok | w1110:Výkon | w1111:Biliard | w1112:Hra | w1113:Zápas | w1114:Výhra | w1115:Prehra | w1116:Súper | w1117:Gitara | w1118:Skladba | w1119:Seriál | w1120:Titulky | w1121:Dabing | w1122:Kresliť | w1123:Pozvánka | w1124:Stretnutie | w1125:Zábava | w1126:Atmosféra | w1127:Spomienka | w1128:Priateľstvo
+[A2] Розділ 48. Високий A2: нюанси мови та фініш:
+  w1129:Dokonca | w1130:Navyše | w1131:Zato | w1132:Predsa | w1133:Aspoň | w1134:Vôbec | w1135:Úplne | w1136:Takmer | w1137:Celkom | w1138:Pravdepodobne | w1139:Rozhodne | w1140:Zrejme | w1141:Rozhodnúť sa | w1142:Presvedčiť | w1143:Vyskúšať | w1144:Podporiť | w1145:Oceniť | w1146:Splniť | w1147:Schopnosť | w1148:Znalosť | w1149:Sebavedomie | w1150:Nezávislosť | w1151:Cieľavedomý | w1152:Pripravený
+[A2] Розділ 49. Пошта, митниця і міжнародні перекази:
+  w1153:Zahraničie | w1154:Hranica | w1155:Colnica | w1156:Hmotnosť | w1157:Krehký | w1158:Balné | w1159:PSČ | w1160:Schránka | w1161:Výdajné miesto | w1162:Kód | w1163:Sledovanie | w1164:Doručenie | w1165:Výmenný kurz | w1166:Zmenáreň | w1167:Potvrdenka | w1168:Variabilný symbol | w1169:Zostatok | w1170:Pripísať | w1171:Zvážiť | w1172:Nalepiť | w1173:Vyzdvihnúť | w1174:Preclenie | w1175:Prijatie | w1176:Oneskorený
+[A2] Розділ 50. Дім, мікроклімат і чистота:
+  w1177:Strop | w1178:Podlaha | w1179:Stena | w1180:Strecha | w1181:Chodba | w1182:Prízemie | w1183:Termostat | w1184:Vetranie | w1185:Vlhkosť | w1186:Izolácia | w1187:Solárny | w1188:Úsporný | w1189:Prací prášok | w1190:Aviváž | w1191:Vysávač | w1192:Handra | w1193:Metla | w1194:Sušiak | w1195:Vysávať | w1196:Utrieť | w1197:Vyvetrať | w1198:Zavesiť | w1199:Poskladať | w1200:Roztriediť
+[A2] Розділ 51. Свята, традиції і культура:
+  w1201:Vianoce | w1202:Veľká noc | w1203:Silvester | w1204:Narodeniny | w1205:Meniny | w1206:Oslava | w1207:Darček | w1208:Blahoželanie | w1209:Šťastie | w1210:Zdravie | w1211:Radosť | w1212:Prekvapenie | w1213:Hrad | w1214:Múzeum | w1215:Galéria | w1216:Výstava | w1217:Kostol | w1218:Tradícia | w1219:Oslavovať | w1220:Blahoželať | w1221:Darovať | w1222:Priať | w1223:Tešiť sa | w1224:Spomínať
+[A2] Розділ 52. Цифрова безпека, мережі та гаджети:
+  w1225:Sieť | w1226:Prihlásenie | w1227:Profil | w1228:Nastavenie | w1229:Zálohovanie | w1230:Úložisko | w1231:Podvod | w1232:Ochrana | w1233:Overenie | w1234:Šifrovanie | w1235:Podozrivý | w1236:Súkromie | w1237:Videohovor | w1238:Klávesnica | w1239:Myš | w1240:Pamäť | w1241:Bezdrôtový | w1242:Prenosný | w1243:Zálohovať | w1244:Kopírovať | w1245:Prilepiť | w1246:Nahrať | w1247:Prepojiť | w1248:Obnoviť
+[A2] Розділ 53. Психологія, стрес і здорові стосунки:
+  w1249:Nálada | w1250:Stres | w1251:Únava | w1252:Tlak | w1253:Rovnováha | w1254:Oddych | w1255:Dôvera | w1256:Pochopenie | w1257:Konflikt | w1258:Kompromis | w1259:Hádka | w1260:Rada | w1261:Úprimný | w1262:Slušný | w1263:Pozorný | w1264:Vďačný | w1265:Opatrný | w1266:Rozumný | w1267:Upokojiť sa | w1268:Snažiť sa | w1269:Dôverovať | w1270:Vážiť si | w1271:Rozčuľovať sa | w1272:Zvládať
+[A2] Розділ 54. Вільне мовлення A2+ (1296 слів):
+  w1273:Spôsob | w1274:Možnosť | w1275:Prípad | w1276:Príklad | w1277:Zmysel | w1278:Účel | w1279:Mimochodom | w1280:Naopak | w1281:Zvyčajne | w1282:Niekde | w1283:Nikde | w1284:Všade | w1285:Uvedomiť si | w1286:Využiť | w1287:Zabezpečiť | w1288:Zlepšovať | w1289:Zaujať | w1290:Zaručiť | w1291:Bežný | w1292:Zvláštny | w1293:Nevyhnutný | w1294:Podobný | w1295:Odlišný | w1296:Vhodný
+[A2] Розділ 55. Професії, цех і робочий простір:
+  w1297:Technik | w1298:Elektrikár | w1299:Mechanik | w1300:Skladník | w1301:Zvárač | w1302:Inžinier | w1303:Predavač | w1304:Čašník | w1305:Programátor | w1306:Učiteľ | w1307:Právnik | w1308:Manažér | w1309:Dielňa | w1310:Hala | w1311:Kancelária | w1312:Oddelenie | w1313:Prevádzka | w1314:Pracovisko | w1315:Zamestnať | w1316:Zaškoliť | w1317:Riadiť | w1318:Organizovať | w1319:Plánovať | w1320:Spolupracovať
+[A2] Розділ 56. Аеропорт, готель і подорожі A2:
+  w1321:Letisko | w1322:Lietadlo | w1323:Let | w1324:Palubný lístok | w1325:Odlet | w1326:Prílet | w1327:Penzión | w1328:Hosť | w1329:Nocľah | w1330:Klimatizácia | w1331:Trezor | w1332:Odhlásenie | w1333:Cestujúci | w1334:Colník | w1335:Vízum | w1336:Trasa | w1337:Konečná | w1338:Spiatočný | w1339:Rezervovať | w1340:Zbaliť | w1341:Ubytovať sa | w1342:Prestúpiť | w1343:Odletieť | w1344:Pristáť
+[A2] Розділ 57. Природа, тварини і пори доби:
+  w1345:Rieka | w1346:Potok | w1347:Kopec | w1348:Údolie | w1349:Pole | w1350:Lúka | w1351:Pes | w1352:Mačka | w1353:Vták | w1354:Kôň | w1355:Zviera | w1356:Útulok | w1357:Strom | w1358:Kvet | w1359:Tráva | w1360:Pôda | w1361:Vzduch | w1362:Výhľad | w1363:Poludnie | w1364:Polnoc | w1365:Svitanie | w1366:Súmrak | w1367:Tieň | w1368:Svieži
+[A2] Розділ 58. Економіка, ринок і фінансове мислення:
+  w1369:Investícia | w1370:Fond | w1371:Úrok | w1372:Inflácia | w1373:Riziko | w1374:Kapitál | w1375:Trh | w1376:Zákazník | w1377:Dodávateľ | w1378:Konkurencia | w1379:Dopyt | w1380:Zmluvný | w1381:Dlhodobý | w1382:Krátkodobý | w1383:Percento | w1384:Priemer | w1385:Suma | w1386:Úspora | w1387:Investovať | w1388:Sporiť | w1389:Znížiť | w1390:Zvýšiť | w1391:Odhadnúť | w1392:Presvedčiť sa
+[A2] Розділ 59. Суспільство, етикет і взаємодія:
+  w1393:Partner | w1394:Priateľ | w1395:Známy | w1396:Cudzinec | w1397:Občan | w1398:Generácia | w1399:Správanie | w1400:Zdvorilosť | w1401:Úcta | w1402:Ochota | w1403:Trpezlivosť | w1404:Odvaha | w1405:Pomáhať | w1406:Rešpektovať | w1407:Počúvať | w1408:Predstaviť sa | w1409:Pozdraviť | w1410:Rozlúčiť sa | w1411:Zdvorilý | w1412:Otvorený | w1413:Priamy | w1414:Skromný | w1415:Ústretový | w1416:Férový
+[A2] Розділ 60. Фінал рівня A2 (1440 слів!):
+  w1417:Výzva | w1418:Obmedzenie | w1419:Pokus | w1420:Dôkaz | w1421:Skutočnosť | w1422:Pravda | w1423:Napokon | w1424:Predovšetkým | w1425:Zatiaľ čo | w1426:Pokiaľ | w1427:Okrem toho | w1428:Napriek tomu | w1429:Dokázať | w1430:Prijať | w1431:Získať | w1432:Udržať | w1433:Prekonať | w1434:Vybudovať | w1435:Dostatočný | w1436:Hodnotný | w1437:Zrejmý | w1438:Vzájomný | w1439:Spoľahlivo | w1440:Plynule
+[B1] Розділ 61. Старт B1: аргументація і дискусія:
+  w1441:Argument | w1442:Tvrdenie | w1443:Postoj | w1444:Pohľad | w1445:Fakt | w1446:Predpoklad | w1447:Pochybnosť | w1448:Kritika | w1449:Námietka | w1450:Zhoda | w1451:Nezhoda | w1452:Záver | w1453:Tvrdiť | w1454:Dokazovať | w1455:Spochybniť | w1456:Zdôrazniť | w1457:Uznať | w1458:Zhrnúť | w1459:Vzhľadom na | w1460:Na základe | w1461:Na rozdiel od | w1462:Na druhej strane | w1463:Totiž | w1464:Teda
+[B1] Розділ 62. Проєкти, ефективність і лідерство:
+  w1465:Projekt | w1466:Proces | w1467:Efektivita | w1468:Uzávierka | w1469:Priorita | w1470:Štandard | w1471:Porada | w1472:Prezentácia | w1473:Spätná väzba | w1474:Hodnotenie | w1475:Požiadavka | w1476:Úspešnosť | w1477:Koordinovať | w1478:Hodnotiť | w1479:Realizovať | w1480:Optimalizovať | w1481:Zaviesť | w1482:Dohliadať | w1483:Efektívny | w1484:Dôsledný | w1485:Iniciatívny | w1486:Systematický | w1487:Objektívny | w1488:Náročný
+[B1] Розділ 63. Технології, автоматизація і ШІ:
+  w1489:Automatizácia | w1490:Robot | w1491:Senzor | w1492:Algoritmus | w1493:Údaje | w1494:Umelá inteligencia | w1495:Softvér | w1496:Rozhranie | w1497:Databáza | w1498:Server | w1499:Aktualizácia | w1500:Výpadok | w1501:Programovať | w1502:Analyzovať | w1503:Spracovať | w1504:Automatizovať | w1505:Vytvoriť | w1506:Ladiť | w1507:Digitálny | w1508:Inteligentný | w1509:Automatický | w1510:Inovatívny | w1511:Kompatibilný | w1512:Prehľadný
+[B1] Розділ 64. Будівництво, нерухомість і ремонт:
+  w1513:Nehnuteľnosť | w1514:Hypotéka | w1515:Vlastníctvo | w1516:Pozemok | w1517:Stavba | w1518:Povolenie | w1519:Tehla | w1520:Betón | w1521:Drevo | w1522:Tepelné čerpadlo | w1523:Základy | w1524:Fasáda | w1525:Rekonštrukcia | w1526:Maľovať | w1527:Vŕtať | w1528:Montovať | w1529:Zatepliť | w1530:Návod | w1531:Energetický | w1532:Ekologický | w1533:Udržateľný | w1534:Prirodzený | w1535:Praktický | w1536:Nízkoenergetický
+[B1] Розділ 65. Право, контракти і захист прав B1:
+  w1537:Súd | w1538:Inšpekcia | w1539:Porušenie | w1540:Povinnosť | w1541:Náhrada | w1542:Škoda | w1543:Bod | w1544:Dodatok | w1545:Ukončenie | w1546:Účinnosť | w1547:Súhlas | w1548:Podmienene | w1549:Porušiť | w1550:Preukázať | w1551:Brániť | w1552:Zaviazať sa | w1553:Oznámiť | w1554:Odškodniť | w1555:Zákonný | w1556:Záväzný | w1557:Úradný | w1558:Oprávnený | w1559:Nezávislý | w1560:Legálny
+[B1] Розділ 66. Тонкі емоції, мислення і виразність B1:
+  w1561:Nadšenie | w1562:Sklamanie | w1563:Obava | w1564:Zvedavosť | w1565:Hrdosť | w1566:Tréma | w1567:Vplyv | w1568:Príčina | w1569:Následok | w1570:Jav | w1571:Poznatok | w1572:Premena | w1573:Uvažovať | w1574:Pochybovať | w1575:Predvídať | w1576:Vnímať | w1577:Ovplyvniť | w1578:Prispôsobiť sa | w1579:Podstatný | w1580:Zásadný | w1581:Primeraný | w1582:Nečakaný | w1583:Výrazný | w1584:Zmysluplný
