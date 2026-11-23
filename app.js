@@ -110,6 +110,68 @@
   const XP_EXAM = 30;
   const XP_REVIEW = 15;
 
+  const LEVEL_EXAM_CONFIGS = [
+    {
+      id: 'lvl_A0',
+      level: 'A0',
+      icon: '🥉',
+      badge: 'A0',
+      title: 'Великий екзамен рівня A0',
+      subtitle: 'Повна атестація бази: читання, наголос, бути/мати, числа й магазин',
+      questions: 24,
+      maxMistakes: 2,
+      xp: 80,
+      themeClass: 'lvl-a0'
+    },
+    {
+      id: 'lvl_A1',
+      level: 'A1',
+      icon: '🥈',
+      badge: 'A1',
+      title: 'Великий екзамен рівня A1',
+      subtitle: 'Комплексна перевірка всього A1: робота, побут, банк, минулий і майбутній час',
+      questions: 40,
+      maxMistakes: 3,
+      xp: 120,
+      themeClass: 'lvl-a1'
+    },
+    {
+      id: 'lvl_A2',
+      level: 'A2',
+      icon: '🥇',
+      badge: 'A2',
+      title: 'Великий екзамен рівня A2',
+      subtitle: 'Масштабна атестація всього A2: жива мова, документи, фінанси й сервіси',
+      questions: 50,
+      maxMistakes: 4,
+      xp: 150,
+      themeClass: 'lvl-a2'
+    },
+    {
+      id: 'lvl_FINAL',
+      level: 'ALL',
+      icon: '👑',
+      badge: 'ФІНАЛ',
+      title: 'Фінальний мега-екзамен: Увесь курс',
+      subtitle: 'Масштабна підсумкова атестація всього вивченого (A0 + A1 + A2 + B1)',
+      questions: 60,
+      maxMistakes: 5,
+      xp: 250,
+      themeClass: 'lvl-final'
+    }
+  ];
+
+  function getLevelExamConfig(examId) {
+    return LEVEL_EXAM_CONFIGS.find((c) => c.id === examId) || null;
+  }
+
+  function getActiveLevelExams() {
+    return LEVEL_EXAM_CONFIGS.filter((cfg) => {
+      if (cfg.level === 'ALL') return SECTIONS.length > 0;
+      return SECTIONS.some((s) => s.level === cfg.level);
+    });
+  }
+
   const todayKey = (dateObj = new Date()) => {
     const y = dateObj.getFullYear();
     const m = String(dateObj.getMonth() + 1).padStart(2, '0');
@@ -145,6 +207,7 @@
     completedLessons: [],
     completedStories: [],
     passedExams: [],
+    passedLevelExams: [],
     weakWords: [],
     knownWords: [],
     srs: {}, // wordId -> { box: 0..5, nextReview: ms }
@@ -197,6 +260,7 @@
       const rawObj = JSON.parse(raw);
       const parsed = { ...defaultState(), ...rawObj };
       if (!parsed.srs || typeof parsed.srs !== 'object') parsed.srs = {};
+      if (!Array.isArray(parsed.passedLevelExams)) parsed.passedLevelExams = [];
       if (!rawObj.lastActiveDay) {
         parsed.lastActiveDay = rawObj.streakDay || rawObj.lastDay || todayKey();
       }
@@ -252,7 +316,7 @@
   }
 
   function hasAnyProgress() {
-    return state.xp > 0 || state.completedLessons.length > 0 || state.passedExams.length > 0;
+    return state.xp > 0 || state.completedLessons.length > 0 || state.passedExams.length > 0 || state.passedLevelExams.length > 0;
   }
 
   function checkAutoBackupTimers() {
@@ -813,10 +877,41 @@
   // =====================================================
   // UNLOCKING LOGIC (Strict Exam Gatekeeper per Section!)
   // =====================================================
+  function getLevelSections(level) {
+    if (level === 'ALL') return SECTIONS;
+    return SECTIONS.filter((s) => s.level === level);
+  }
+
+  function getLevelExamRemaining(examId) {
+    const cfg = getLevelExamConfig(examId);
+    if (!cfg) return { sectionsLeft: 0, levelExamsLeft: 0 };
+    if (cfg.level === 'ALL') {
+      const sectionsLeft = SECTIONS.filter((s) => !state.passedExams.includes(s.id)).length;
+      const reqLevels = getActiveLevelExams().filter((c) => c.level !== 'ALL');
+      const levelExamsLeft = reqLevels.filter((c) => !state.passedLevelExams.includes(c.id)).length;
+      return { sectionsLeft, levelExamsLeft };
+    }
+    const secs = getLevelSections(cfg.level);
+    const sectionsLeft = secs.filter((s) => !state.passedExams.includes(s.id)).length;
+    return { sectionsLeft, levelExamsLeft: 0 };
+  }
+
+  function isLevelExamUnlocked(examId) {
+    if (state.freeUnlock) return true;
+    const rem = getLevelExamRemaining(examId);
+    return rem.sectionsLeft === 0 && rem.levelExamsLeft === 0;
+  }
+
   function isSectionUnlocked(secIdx) {
     if (state.freeUnlock || secIdx === 0) return true;
     const prevSec = SECTIONS[secIdx - 1];
-    return state.passedExams.includes(prevSec.id);
+    const curSec = SECTIONS[secIdx];
+    if (!state.passedExams.includes(prevSec.id)) return false;
+    if (curSec && prevSec.level !== curSec.level) {
+      const lvlExam = getLevelExamConfig('lvl_' + prevSec.level);
+      if (lvlExam && !state.passedLevelExams.includes(lvlExam.id)) return false;
+    }
+    return true;
   }
 
   function isLessonUnlocked(secIdx, lesIdx) {
@@ -892,9 +987,11 @@
       origLessons: new Set(state.completedLessons),
       origStories: new Set(state.completedStories),
       origExams: new Set(state.passedExams),
+      origLevelExams: new Set(state.passedLevelExams),
       lessons: new Set(state.completedLessons),
       stories: new Set(state.completedStories),
-      exams: new Set(state.passedExams)
+      exams: new Set(state.passedExams),
+      levelExams: new Set(state.passedLevelExams)
     };
     mainView.classList.add('edit-active');
   }
@@ -913,6 +1010,7 @@
         resetLessons: [], restoreLessons: [],
         resetStories: [], restoreStories: [],
         resetExams: [], restoreExams: [],
+        resetLevelExams: [], restoreLevelExams: [],
         toReset: 0, toRestore: 0, total: 0
       };
     }
@@ -922,12 +1020,15 @@
     const restoreStories = [...progressDraft.stories].filter((id) => !progressDraft.origStories.has(id));
     const resetExams = [...progressDraft.origExams].filter((id) => !progressDraft.exams.has(id));
     const restoreExams = [...progressDraft.exams].filter((id) => !progressDraft.origExams.has(id));
-    const toReset = resetLessons.length + resetStories.length + resetExams.length;
-    const toRestore = restoreLessons.length + restoreStories.length + restoreExams.length;
+    const resetLevelExams = [...progressDraft.origLevelExams].filter((id) => !progressDraft.levelExams.has(id));
+    const restoreLevelExams = [...progressDraft.levelExams].filter((id) => !progressDraft.origLevelExams.has(id));
+    const toReset = resetLessons.length + resetStories.length + resetExams.length + resetLevelExams.length;
+    const toRestore = restoreLessons.length + restoreStories.length + restoreExams.length + restoreLevelExams.length;
     return {
       resetLessons, restoreLessons,
       resetStories, restoreStories,
       resetExams, restoreExams,
+      resetLevelExams, restoreLevelExams,
       toReset, toRestore,
       total: toReset + toRestore
     };
@@ -979,15 +1080,22 @@
     if (diff.resetLessons.length) resetParts.push(`уроків: <strong>${diff.resetLessons.length}</strong>`);
     if (diff.resetStories.length) resetParts.push(`діалогів: <strong>${diff.resetStories.length}</strong>`);
     if (diff.resetExams.length) resetParts.push(`екзаменів: <strong>${diff.resetExams.length}</strong>`);
+    if (diff.resetLevelExams.length) resetParts.push(`великих екзаменів: <strong>${diff.resetLevelExams.length}</strong>`);
 
     const restoreParts = [];
     if (diff.restoreLessons.length) restoreParts.push(`уроків: <strong>${diff.restoreLessons.length}</strong>`);
     if (diff.restoreStories.length) restoreParts.push(`діалогів: <strong>${diff.restoreStories.length}</strong>`);
     if (diff.restoreExams.length) restoreParts.push(`екзаменів: <strong>${diff.restoreExams.length}</strong>`);
+    if (diff.restoreLevelExams.length) restoreParts.push(`великих екзаменів: <strong>${diff.restoreLevelExams.length}</strong>`);
 
+    const levelExamsRollbackXp = diff.resetLevelExams.reduce((sum, id) => {
+      const cfg = getLevelExamConfig(id);
+      return sum + (cfg ? cfg.xp : 80);
+    }, 0);
     const rollbackXp = (diff.resetLessons.length * XP_LESSON)
       + (diff.resetStories.length * XP_STORY)
-      + (diff.resetExams.length * XP_EXAM);
+      + (diff.resetExams.length * XP_EXAM)
+      + levelExamsRollbackXp;
 
     openModal(`
       <h3>↺ Підтвердити зміни прогресу?</h3>
@@ -1024,6 +1132,7 @@
       state.completedLessons = [...progressDraft.lessons];
       state.completedStories = [...progressDraft.stories];
       state.passedExams = [...progressDraft.exams];
+      state.passedLevelExams = [...progressDraft.levelExams];
 
       if (doRollbackXp && rollbackXp > 0) {
         state.xp = Math.max(0, state.xp - rollbackXp);
@@ -1204,6 +1313,19 @@
           <div style="font-size:12.5px;font-weight:800;color:var(--blue);">${stageRight}</div>
         </div>
         <div class="goal-bar"><div class="goal-fill blue" style="width:${stagePct}%"></div></div>
+
+        <div class="cert-strip" id="cert-strip">
+          ${getActiveLevelExams().map((cfg) => {
+            const passed = state.passedLevelExams.includes(cfg.id);
+            const unlocked = isLevelExamUnlocked(cfg.id);
+            const cls = passed ? 'passed' : (unlocked ? 'ready' : 'locked');
+            return `<button type="button" class="cert-chip ${cls}" data-cert-exam="${cfg.id}" title="${escHtml(cfg.title)}">
+              <span>${cfg.icon}</span>
+              <span>${escHtml(cfg.badge)}</span>
+              <span>${passed ? '✓' : (unlocked ? '▶' : '🔒')}</span>
+            </button>`;
+          }).join('')}
+        </div>
       </div>
 
       <div class="level-tabs" id="level-tabs">
@@ -1245,6 +1367,62 @@
       `;
     }
 
+    function renderMajorExamCardHtml(cfg) {
+      const levelExamSet = progressEditMode ? progressDraft.levelExams : new Set(state.passedLevelExams);
+      const passed = levelExamSet.has(cfg.id);
+      const unlocked = progressEditMode ? true : isLevelExamUnlocked(cfg.id);
+      const secs = getLevelSections(cfg.level);
+      const wordTotal = secs.reduce((sum, s) => sum + s.lessons.reduce((ls, l) => ls + l.words.length, 0), 0);
+      const rem = getLevelExamRemaining(cfg.id);
+
+      if (progressEditMode) {
+        const wasDone = progressDraft.origLevelExams.has(cfg.id);
+        const editCls = (wasDone && !passed) ? 'edit-will-reset' : ((!wasDone && passed) ? 'edit-will-restore' : (passed ? 'passed' : ''));
+        const editTag = (wasDone && !passed) ? '↺ Скинути' : ((!wasDone && passed) ? '✓ Повернути' : (passed ? 'Складено' : 'Не складено'));
+        return `
+          <button type="button" class="major-exam-card ${cfg.themeClass} ${editCls}" data-edit-type="level_exam" data-edit-id="${cfg.id}">
+            <div class="edit-checkbox ${passed ? 'checked' : ''} ${(wasDone && !passed) ? 'reset' : ''}">${passed ? '✓' : ''}</div>
+            <div class="major-exam-meta">
+              <div class="major-exam-kicker">${cfg.icon} ВЕЛИКИЙ ЕКЗАМЕН • ${cfg.questions} ПИТАНЬ</div>
+              <div class="major-exam-title">${escHtml(cfg.title)}</div>
+              <div class="major-exam-sub">Макс. ${cfg.maxMistakes} помилки • +${cfg.xp} XP</div>
+            </div>
+            <div class="major-exam-cta">${editTag}</div>
+          </button>
+        `;
+      }
+
+      const lockHint = cfg.level === 'ALL'
+        ? `Залишилось розділів: ${rem.sectionsLeft}${rem.levelExamsLeft > 0 ? `, екзаменів рівнів: ${rem.levelExamsLeft}` : ''}`
+        : `Спочатку склади всі розділи ${cfg.level} (залишилось: ${rem.sectionsLeft})`;
+
+      return `
+        <button type="button" class="major-exam-card ${cfg.themeClass} ${passed ? 'passed' : (unlocked ? 'ready' : 'locked')}"
+          data-level-exam="${cfg.id}" ${unlocked ? '' : 'data-locked="1"'}>
+          <div class="major-exam-icon">
+            <span>${cfg.icon}</span>
+            ${passed ? '<span class="lesson-check-badge">✓</span>' : ''}
+          </div>
+          <div class="major-exam-meta">
+            <div class="major-exam-kicker">${cfg.level === 'ALL' ? 'ФІНАЛЬНА АТЕСТАЦІЯ КУРСУ' : `ЕКЗАМЕН РІВНЯ ${cfg.level}`} • ${cfg.questions} ПИТАНЬ</div>
+            <div class="major-exam-title">${escHtml(cfg.title)}</div>
+            <div class="major-exam-sub">${passed
+              ? `Атестацію пройдено! База: ${wordTotal} слів • +${cfg.xp} XP`
+              : (unlocked
+                  ? `База: ${wordTotal} слів • Макс. ${cfg.maxMistakes} пом. • +${cfg.xp} XP`
+                  : `🔒 ${lockHint}`
+                )
+            }</div>
+          </div>
+          <div class="major-exam-cta">${passed ? 'Складено ✓' : (unlocked ? 'Скласти' : '🔒')}</div>
+        </button>
+      `;
+    }
+
+    // Track last section index for each level to place checkpoint exam right after it
+    const lastSecIdxByLevel = {};
+    SECTIONS.forEach((s, i) => { lastSecIdxByLevel[s.level] = i; });
+
     filteredSections.forEach(({ s: sec, idx: secIdx }) => {
       const secUnlocked = progressEditMode ? true : isSectionUnlocked(secIdx);
       const examSet = progressEditMode ? progressDraft.exams : new Set(state.passedExams);
@@ -1263,9 +1441,16 @@
         (progressDraft.exams.has(sec.id) !== progressDraft.origExams.has(sec.id))
       );
 
+      let lockLabel = '🔒 Склади попередній екзамен';
+      if (!secUnlocked && secIdx > 0) {
+        const prevSec = SECTIONS[secIdx - 1];
+        if (prevSec.level !== sec.level && state.passedExams.includes(prevSec.id)) {
+          lockLabel = `🔒 Склади Великий екзамен ${prevSec.level}`;
+        }
+      }
       const statusLabel = examPassed
         ? 'Складено ✅'
-        : (secUnlocked ? `${doneLessonsInSec}/${sec.lessons.length} уроків` : '🔒 Склади попередній екзамен');
+        : (secUnlocked ? `${doneLessonsInSec}/${sec.lessons.length} уроків` : lockLabel);
 
       html += `
         <div class="section-wrap">
@@ -1408,7 +1593,21 @@
         html += `</div>`;
       }
       html += `</div>`;
+
+      // Place Major Level Exam right after the last section of A0, A1, A2
+      if (lastSecIdxByLevel[sec.level] === secIdx) {
+        const lvlCfg = getLevelExamConfig('lvl_' + sec.level);
+        if (lvlCfg) {
+          html += renderMajorExamCardHtml(lvlCfg);
+        }
+      }
     });
+
+    // Place Grand Comprehensive Final Exam at the very end (in 'ALL' and 'B1' tabs)
+    const finalCfg = getLevelExamConfig('lvl_FINAL');
+    if (finalCfg && SECTIONS.length > 0 && (state.levelFilter === 'ALL' || state.levelFilter === 'B1')) {
+      html += renderMajorExamCardHtml(finalCfg);
+    }
 
     mainView.innerHTML = html;
     renderEditConfirmBar();
@@ -1492,19 +1691,38 @@
       };
     });
 
+    mainView.querySelectorAll('[data-cert-exam]').forEach((btn) => {
+      btn.onclick = () => {
+        if (progressEditMode) {
+          showToast('Спочатку вийди з режиму редагування');
+          return;
+        }
+        SoundFX.tap();
+        openMajorExamModal(btn.dataset.certExam);
+      };
+    });
+
     if (progressEditMode) {
       mainView.querySelectorAll('[data-edit-type]').forEach((card) => {
         card.onclick = () => {
           SoundFX.tap();
           const t = card.dataset.editType;
           const id = card.dataset.editId;
-          const targetSet = t === 'lesson' ? progressDraft.lessons : (t === 'story' ? progressDraft.stories : progressDraft.exams);
+          const targetSet = t === 'lesson'
+            ? progressDraft.lessons
+            : (t === 'story' ? progressDraft.stories : (t === 'level_exam' ? progressDraft.levelExams : progressDraft.exams));
           if (targetSet.has(id)) targetSet.delete(id);
           else targetSet.add(id);
           renderCourseTab(true);
         };
       });
     } else {
+      mainView.querySelectorAll('[data-level-exam]').forEach((card) => {
+        card.onclick = () => {
+          SoundFX.tap();
+          openMajorExamModal(card.dataset.levelExam);
+        };
+      });
       mainView.querySelectorAll('[data-lesson-id]').forEach((card) => {
         card.onclick = () => {
           if (card.dataset.locked === '1') {
@@ -1631,7 +1849,171 @@
     return shuffle(q);
   }
 
-  function openOverlayUI(isExam) {
+  function buildMajorExamQueue(targetSections, totalQuestions) {
+    // Stratified sampling across all target sections so every topic is represented
+    const secWordBuckets = targetSections.map((s) => shuffle(s.lessons.flatMap((l) => l.words))).filter((b) => b.length > 0);
+    const allPoolWords = targetSections.flatMap((s) => s.lessons.flatMap((l) => l.words));
+    const secGramBuckets = targetSections.map((s) => shuffle(s.lessons.flatMap((l) => l.grammar || []))).filter((b) => b.length > 0);
+    const secSentBuckets = targetSections.map((s) => shuffle(s.lessons.flatMap((l) => l.sentences || []))).filter((b) => b.length > 0);
+
+    function drawStratified(buckets, count) {
+      const result = [];
+      const order = shuffle(buckets.map((b) => b.slice()));
+      let guard = 0;
+      while (result.length < count && order.length > 0 && guard < count * 5) {
+        guard++;
+        for (let i = order.length - 1; i >= 0 && result.length < count; i--) {
+          if (order[i].length > 0) result.push(order[i].pop());
+          else order.splice(i, 1);
+        }
+      }
+      return result;
+    }
+
+    const n = Math.min(totalQuestions, Math.max(10, allPoolWords.length));
+    const gramTarget = Math.min(secGramBuckets.reduce((a, b) => a + b.length, 0), Math.max(2, Math.round(n * 0.12)));
+    const sentTarget = Math.min(secSentBuckets.reduce((a, b) => a + b.length, 0), Math.max(2, Math.round(n * 0.12)));
+    const typingTarget = Math.max(2, Math.round(n * 0.12));
+    const wordQuestionsNeeded = Math.max(4, n - gramTarget - sentTarget);
+
+    const chosenWords = drawStratified(secWordBuckets, wordQuestionsNeeded);
+    const chosenGrams = drawStratified(secGramBuckets, gramTarget);
+    const chosenSents = drawStratified(secSentBuckets, sentTarget);
+
+    const q = [];
+    const listenTarget = SpeechEngine.supported ? Math.max(2, Math.round(chosenWords.length * 0.22)) : 0;
+    const ukSkTarget = Math.max(2, Math.round(chosenWords.length * 0.34));
+    const actualTyping = Math.min(typingTarget, Math.max(1, chosenWords.length - listenTarget - ukSkTarget - 2));
+
+    let wi = 0;
+    for (let i = 0; i < actualTyping && chosenWords[wi]; i++, wi++) {
+      q.push({ type: 'typing', word: chosenWords[wi] });
+    }
+    for (let i = 0; i < listenTarget && chosenWords[wi]; i++, wi++) {
+      q.push({ type: 'listen_mc', word: chosenWords[wi], pool: allPoolWords });
+    }
+    for (let i = 0; i < ukSkTarget && chosenWords[wi]; i++, wi++) {
+      q.push({ type: 'mc_uk_sk', word: chosenWords[wi], pool: allPoolWords });
+    }
+    while (chosenWords[wi]) {
+      q.push({ type: 'mc_sk_uk', word: chosenWords[wi], pool: allPoolWords });
+      wi++;
+    }
+    chosenGrams.forEach((g) => q.push({ type: 'grammar', gram: g }));
+    chosenSents.forEach((s) => q.push({ type: 'word_bank', sentence: s, lessonWords: allPoolWords }));
+
+    return shuffle(q);
+  }
+
+  function launchMajorExamSession(cfg, targetSections, isPracticeOnly = false) {
+    const studiedWordCnt = targetSections.reduce((sum, s) => sum + s.lessons.reduce((ls, l) => ls + l.words.length, 0), 0);
+    const qCount = isPracticeOnly
+      ? Math.min(40, Math.max(16, Math.round(studiedWordCnt * 0.4)))
+      : cfg.questions;
+    const maxErr = isPracticeOnly
+      ? Math.max(2, Math.round(qCount * 0.1))
+      : cfg.maxMistakes;
+    const xpReward = isPracticeOnly ? 40 : cfg.xp;
+
+    activeStory = null;
+    activeSession = {
+      mode: 'exam',
+      examKind: 'major',
+      examConfig: cfg,
+      targetSections,
+      isPracticeOnly,
+      id: cfg.id,
+      title: isPracticeOnly ? 'Пробний мега-екзамен (по вивченому)' : cfg.title,
+      queue: buildMajorExamQueue(targetSections, qCount),
+      idx: 0,
+      mistakes: 0,
+      maxMistakes: maxErr,
+      examXp: xpReward,
+      missedWords: [],
+      xpEarned: 0,
+      selection: null,
+      checked: false
+    };
+    openOverlayUI(true, maxErr);
+    renderCurrentExercise();
+  }
+
+  function openMajorExamModal(examId) {
+    const cfg = getLevelExamConfig(examId);
+    if (!cfg) return;
+    const unlocked = isLevelExamUnlocked(cfg.id);
+    const passed = state.passedLevelExams.includes(cfg.id);
+    const secs = getLevelSections(cfg.level);
+    const wordTotal = secs.reduce((sum, s) => sum + s.lessons.reduce((ls, l) => ls + l.words.length, 0), 0);
+    const rem = getLevelExamRemaining(cfg.id);
+
+    // Sections where user already completed at least 1 lesson (for practice mega-exam on studied material)
+    const studiedSecs = SECTIONS
+      .map((s) => ({ ...s, lessons: s.lessons.filter((l) => state.completedLessons.includes(l.id)) }))
+      .filter((s) => s.lessons.length > 0);
+    const studiedLessonsCount = state.completedLessons.length;
+    const canPracticeStudied = cfg.level === 'ALL' && studiedLessonsCount >= 4 && !unlocked;
+
+    if (!unlocked) {
+      const needText = cfg.level === 'ALL'
+        ? `Щоб відкрити офіційний фінальний мега-екзамен, заверши всі розділи курсу (залишилось розділів: <strong>${rem.sectionsLeft}</strong>${rem.levelExamsLeft > 0 ? `, великих екзаменів рівнів: <strong>${rem.levelExamsLeft}</strong>` : ''}).`
+        : `Щоб відкрити <strong>${escHtml(cfg.title)}</strong>, спочатку склади екзамени всіх розділів рівня ${cfg.level} (залишилось: <strong>${rem.sectionsLeft}</strong>).`;
+
+      openModal(`
+        <h3>${cfg.icon} ${escHtml(cfg.title)}</h3>
+        <p class="muted" style="font-size:14px;margin-bottom:14px;">${needText}</p>
+        <div class="card" style="background:var(--surface-2);font-size:13px;margin-bottom:14px;">
+          <div>• Питань: <strong>${cfg.questions}</strong> (з бази ${wordTotal} слів)</div>
+          <div>• Ліміт помилок: <strong>макс. ${cfg.maxMistakes}</strong></div>
+          <div>• Нагорода: <strong>+${cfg.xp} XP</strong> і сертифікат <strong>${escHtml(cfg.badge)}</strong></div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          ${canPracticeStudied ? `<button class="btn btn-blue btn-full" id="m-maj-studied">🧪 Пробний мега-екзамен по вивченому (${studiedLessonsCount * 6} слів)</button>` : ''}
+          <button class="btn btn-outline btn-full" id="m-maj-close">Зрозуміло</button>
+        </div>
+      `);
+      document.getElementById('m-maj-close').onclick = closeModal;
+      const stBtn = document.getElementById('m-maj-studied');
+      if (stBtn) {
+        stBtn.onclick = () => {
+          closeModal();
+          launchMajorExamSession(cfg, studiedSecs, true);
+        };
+      }
+      return;
+    }
+
+    const showStudiedOption = cfg.level === 'ALL' && studiedLessonsCount >= 4 && rem.sectionsLeft > 0;
+    openModal(`
+      <h3>${cfg.icon} ${escHtml(cfg.title)}</h3>
+      <p class="muted" style="font-size:13.5px;margin-bottom:12px;">${escHtml(cfg.subtitle)}</p>
+      <div class="card" style="background:var(--surface-2);font-size:13.5px;margin-bottom:14px;">
+        <div>📚 Охоплення: <strong>${secs.length} розд. (${wordTotal} слів)</strong></div>
+        <div>📝 Кількість питань: <strong>${cfg.questions}</strong> (переклад, аудіо, граматика, речення, письмо)</div>
+        <div>🎯 Поріг складання: <strong>макс. ${cfg.maxMistakes} ${cfg.maxMistakes === 1 ? 'помилка' : (cfg.maxMistakes <= 4 ? 'помилки' : 'помилок')}</strong></div>
+        <div>⚡ Нагорода: <strong>+${cfg.xp} XP</strong> ${passed ? '(вже складено ✓)' : ''}</div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        <button class="btn btn-orange btn-full" id="m-maj-start">${passed ? '🔁 ПЕРЕСКЛАСТИ ЕКЗАМЕН' : '🚀 ПОЧАТИ ВЕЛИКИЙ ЕКЗАМЕН'}</button>
+        ${showStudiedOption ? `<button class="btn btn-blue btn-full" id="m-maj-studied">🧪 Тільки по моїх пройдених темах (${studiedLessonsCount * 6} слів)</button>` : ''}
+        <button class="btn btn-outline btn-full" id="m-maj-cancel">Повернутися</button>
+      </div>
+    `);
+    document.getElementById('m-maj-cancel').onclick = closeModal;
+    document.getElementById('m-maj-start').onclick = () => {
+      closeModal();
+      launchMajorExamSession(cfg, secs, false);
+    };
+    const stBtn = document.getElementById('m-maj-studied');
+    if (stBtn) {
+      stBtn.onclick = () => {
+        closeModal();
+        launchMajorExamSession(cfg, studiedSecs, true);
+      };
+    }
+  }
+
+  function openOverlayUI(isExam, maxMistakes = 1) {
     const overlay = document.getElementById('lesson-overlay');
     overlay.classList.remove('hidden');
     overlay.setAttribute('aria-hidden', 'false');
@@ -1640,7 +2022,7 @@
     ep.classList.toggle('hidden', !isExam);
     if (isExam) {
       ep.classList.remove('danger');
-      document.getElementById('exam-err-val').textContent = '0/1';
+      document.getElementById('exam-err-val').textContent = `0/${maxMistakes}`;
     }
     updateHeader();
   }
@@ -1703,6 +2085,7 @@
       activeStory = null;
       activeSession = {
         mode: 'exam',
+        examKind: 'section',
         section: sec,
         id: sec.id,
         title: `Екзамен: ${sec.title}`,
@@ -1710,12 +2093,13 @@
         idx: 0,
         mistakes: 0,
         maxMistakes: 1,
+        examXp: XP_EXAM,
         missedWords: [],
         xpEarned: 0,
         selection: null,
         checked: false
       };
-      openOverlayUI(true);
+      openOverlayUI(true, 1);
       renderCurrentExercise();
     };
   }
@@ -1749,7 +2133,7 @@
     if (activeSession.mode === 'exam') {
       const ep = document.getElementById('exam-err-pill');
       document.getElementById('exam-err-val').textContent = `${activeSession.mistakes}/${activeSession.maxMistakes}`;
-      ep.classList.toggle('danger', activeSession.mistakes >= 1);
+      ep.classList.toggle('danger', activeSession.mistakes >= activeSession.maxMistakes);
     }
   }
 
@@ -1836,10 +2220,16 @@
 
   function examMistakeNote() {
     if (!activeSession || activeSession.mode !== 'exam') return '';
-    if (activeSession.mistakes === 1) {
-      return '<br/><span style="color:var(--orange);font-weight:800;">⚠️ Помилка 1/1 — більше помилятися не можна!</span>';
+    const m = activeSession.mistakes;
+    const max = activeSession.maxMistakes || 1;
+    if (m <= max) {
+      const left = max - m;
+      if (left === 0) {
+        return `<br/><span style="color:var(--orange);font-weight:800;">⚠️ Помилка ${m}/${max} — більше помилятися не можна!</span>`;
+      }
+      return `<br/><span style="color:var(--orange);font-weight:800;">⚠️ Помилка ${m}/${max} — залишилось право ще на ${left} ${left === 1 ? 'помилку' : 'помилки'}.</span>`;
     }
-    return '<br/><span style="color:var(--red);font-weight:800;">❌ 2 помилки — екзамен не складено.</span>';
+    return `<br/><span style="color:var(--red);font-weight:800;">❌ Перевищено ліміт (${m} помилок із ${max}) — екзамен не складено.</span>`;
   }
 
   function renderCurrentExercise() {
@@ -2349,19 +2739,26 @@
 
   function finishExamFailed() {
     SoundFX.bad();
+    const isMajor = activeSession.examKind === 'major';
     const sec = activeSession.section;
+    const cfg = activeSession.examConfig;
+    const targetSecs = activeSession.targetSections;
+    const isPracticeOnly = !!activeSession.isPracticeOnly;
+    const maxErr = activeSession.maxMistakes || 1;
+    const mCount = activeSession.mistakes;
+
     const missedHtml = activeSession.missedWords.length
       ? `<div class="card" style="text-align:left;margin-bottom:14px;">
           <div style="font-weight:800;margin-bottom:6px;">Додано у слабкі слова:</div>
-          ${activeSession.missedWords.map((w) => `<div class="muted">• <strong>${escHtml(w.sk)}</strong> — ${escHtml(w.uk)}</div>`).join('')}
+          ${activeSession.missedWords.slice(0, 8).map((w) => `<div class="muted">• <strong>${escHtml(w.sk)}</strong> — ${escHtml(w.uk)}</div>`).join('')}
         </div>`
       : '';
 
     openModal(`
       <div style="text-align:center;">
         <div style="font-size:52px;margin-bottom:6px;">📝</div>
-        <h3 style="color:var(--red);">Екзамен не складено</h3>
-        <p class="muted" style="margin-bottom:14px;">Зроблено 2 помилки (дозволено максимум 1). Повтори слова й спробуй ще раз — наступний розділ відкриється після складання!</p>
+        <h3 style="color:var(--red);">${isMajor ? 'Великий екзамен не складено' : 'Екзамен не складено'}</h3>
+        <p class="muted" style="margin-bottom:14px;">Зроблено ${mCount} ${mCount <= 4 ? 'помилки' : 'помилок'} (дозволено максимум ${maxErr}). Усі помилкові слова додано у «Повтор → Слабкі слова» — потренуй їх і спробуй ще раз!</p>
         ${missedHtml}
         <div style="display:flex;flex-direction:column;gap:9px;">
           <button class="btn btn-orange btn-full" id="m-exam-retry">🔁 Перездати екзамен</button>
@@ -2372,22 +2769,28 @@
 
     document.getElementById('m-exam-retry').onclick = () => {
       closeModal();
-      activeSession = {
-        mode: 'exam',
-        section: sec,
-        id: sec.id,
-        title: `Екзамен: ${sec.title}`,
-        queue: buildExamQueue(sec),
-        idx: 0,
-        mistakes: 0,
-        maxMistakes: 1,
-        missedWords: [],
-        xpEarned: 0,
-        selection: null,
-        checked: false
-      };
-      openOverlayUI(true);
-      renderCurrentExercise();
+      if (isMajor && cfg) {
+        launchMajorExamSession(cfg, targetSecs || getLevelSections(cfg.level), isPracticeOnly);
+      } else if (sec) {
+        activeSession = {
+          mode: 'exam',
+          examKind: 'section',
+          section: sec,
+          id: sec.id,
+          title: `Екзамен: ${sec.title}`,
+          queue: buildExamQueue(sec),
+          idx: 0,
+          mistakes: 0,
+          maxMistakes: 1,
+          examXp: XP_EXAM,
+          missedWords: [],
+          xpEarned: 0,
+          selection: null,
+          checked: false
+        };
+        openOverlayUI(true, 1);
+        renderCurrentExercise();
+      }
     };
     document.getElementById('m-exam-exit').onclick = () => {
       closeModal();
@@ -2398,8 +2801,9 @@
   function finishSession() {
     SoundFX.win();
     const isExam = activeSession.mode === 'exam';
+    const isMajor = isExam && activeSession.examKind === 'major';
     const xp = isExam
-      ? XP_EXAM
+      ? (activeSession.examXp || XP_EXAM)
       : (activeSession.mode === 'lesson' ? XP_LESSON : XP_REVIEW);
     addXP(xp);
 
@@ -2407,30 +2811,56 @@
       state.completedLessons.push(activeSession.id);
       saveState();
     }
-    if (isExam) {
+    if (isExam && !isMajor) {
       if (!state.passedExams.includes(activeSession.id)) {
         state.passedExams.push(activeSession.id);
-        // Auto-collapse passed section and auto-expand next section!
         expandedSections[activeSession.id] = false;
         const idx = SECTIONS.findIndex((s) => s.id === activeSession.id);
-        if (idx >= 0 && SECTIONS[idx + 1]) expandedSections[SECTIONS[idx + 1].id] = true;
+        if (idx >= 0 && SECTIONS[idx + 1] && SECTIONS[idx + 1].level === SECTIONS[idx].level) {
+          expandedSections[SECTIONS[idx + 1].id] = true;
+        }
+        saveState();
+      }
+    }
+    if (isMajor && !activeSession.isPracticeOnly) {
+      if (!state.passedLevelExams.includes(activeSession.id)) {
+        state.passedLevelExams.push(activeSession.id);
+        // Auto-expand the first section of the next level!
+        const nextLevelMap = { lvl_A0: 'A1', lvl_A1: 'A2', lvl_A2: 'B1' };
+        const nextLv = nextLevelMap[activeSession.id];
+        if (nextLv) {
+          const nextSec = SECTIONS.find((s) => s.level === nextLv);
+          if (nextSec) expandedSections[nextSec.id] = true;
+        }
         saveState();
       }
     }
 
     const totalChecks = Math.max(1, activeSession.queue.length);
     const acc = Math.max(50, Math.round(((totalChecks - activeSession.mistakes) / totalChecks) * 100));
+    const maxErr = activeSession.maxMistakes || 1;
+    const icon = isMajor ? (activeSession.examConfig?.icon || '👑') : (isExam ? '🎓' : '🏆');
+    const heading = isMajor
+      ? (activeSession.isPracticeOnly ? 'Пробний мега-екзамен складено!' : `${activeSession.examConfig.title} складено!`)
+      : (isExam ? 'Екзамен складено!' : 'Урок завершено!');
+    const subMsg = isMajor
+      ? (activeSession.isPracticeOnly
+          ? `Помилок: ${activeSession.mistakes}/${maxErr}. Чудова перевірка вивчених тем!`
+          : (activeSession.id === 'lvl_FINAL'
+              ? `Помилок: ${activeSession.mistakes}/${maxErr}. Ти пройшов повну фінальну атестацію SlovoSK!`
+              : `Помилок: ${activeSession.mistakes}/${maxErr}. Рівень ${activeSession.examConfig.level} підтверджено — наступний рівень відкрито!`
+            )
+        )
+      : (isExam
+          ? `Помилок: ${activeSession.mistakes}/${maxErr}. Наступний крок відкрито!`
+          : escHtml(activeSession.title)
+        );
 
     openModal(`
       <div style="text-align:center;">
-        <div style="font-size:56px;margin-bottom:6px;">${isExam ? '🎓' : '🏆'}</div>
-        <h3>${isExam ? 'Екзамен складено!' : 'Урок завершено!'}</h3>
-        <p class="muted" style="margin-bottom:14px;">
-          ${isExam
-            ? `Помилок: ${activeSession.mistakes}/1. Наступний розділ відкрито!`
-            : escHtml(activeSession.title)
-          }
-        </p>
+        <div style="font-size:58px;margin-bottom:6px;">${icon}</div>
+        <h3>${escHtml(heading)}</h3>
+        <p class="muted" style="margin-bottom:14px;">${subMsg}</p>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:18px;">
           <div class="card" style="margin:0;padding:12px;">
             <div class="muted">Отримано</div>
