@@ -3,6 +3,8 @@
 
   const STORAGE_KEY = 'slovosk_state_v2';
   const LEGACY_KEY = 'slovosk_state_v1';
+  const AUTO_SNAPSHOT_KEY = 'slovosk_auto_snapshot_v2';
+  const WEEK_MS = 7 * 86400000;
   const DIACRITICS = ['á', 'ä', 'č', 'ď', 'é', 'í', 'ĺ', 'ľ', 'ň', 'ó', 'ô', 'ŕ', 'š', 'ť', 'ú', 'ý', 'ž'];
   const SRS_DAYS = [0, 1, 3, 7, 14, 30]; // Box 0..5
 
@@ -133,7 +135,11 @@
     aiScenario: 'interview',
     audioPauseSec: 3,
     audioSpeakUk: true,
-    audioSlow: false
+    audioSlow: false,
+    weeklyBackupEnabled: true,
+    lastFileExportAt: 0,
+    backupSnoozeUntil: 0,
+    lastAutoSnapshotAt: 0
   });
 
   function loadState() {
@@ -184,6 +190,112 @@
     } catch {}
     updateHeader();
     updateSrsBadge();
+  }
+
+  // =====================================================
+  // WEEKLY AUTO-BACKUP (Internal Rolling Snapshot + Weekly JSON File)
+  // =====================================================
+  function saveAutoSnapshot(reason = 'auto') {
+    try {
+      const snap = {
+        savedAt: Date.now(),
+        reason,
+        data: { ...state }
+      };
+      // Always overwrites the single previous snapshot (zero extra space)
+      localStorage.setItem(AUTO_SNAPSHOT_KEY, JSON.stringify(snap));
+      state.lastAutoSnapshotAt = snap.savedAt;
+    } catch {}
+  }
+
+  function getAutoSnapshot() {
+    try {
+      const raw = localStorage.getItem(AUTO_SNAPSHOT_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      return parsed && parsed.data ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function formatShortDate(ms) {
+    if (!ms) return 'ще не було';
+    const d = new Date(ms);
+    const dd = String(d.getDate()).padStart(2, '0');
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const yyyy = d.getFullYear();
+    return `${dd}.${mm}.${yyyy}`;
+  }
+
+  function hasAnyProgress() {
+    return state.xp > 0 || state.completedLessons.length > 0 || state.passedExams.length > 0;
+  }
+
+  function checkAutoBackupTimers() {
+    const now = Date.now();
+    // Initialize baseline timestamp for existing users so first reminder fires after 7 days
+    if (state.lastFileExportAt === 0 && hasAnyProgress()) {
+      state.lastFileExportAt = now;
+      saveState();
+    }
+    // Automatically refresh rolling internal snapshot once a week (overwrites old one)
+    if (hasAnyProgress() && (now - (state.lastAutoSnapshotAt || 0) >= WEEK_MS)) {
+      saveAutoSnapshot('weekly');
+      saveState();
+    }
+  }
+
+  function isWeeklyFileExportDue() {
+    if (!state.weeklyBackupEnabled || !hasAnyProgress()) return false;
+    const now = Date.now();
+    if (state.backupSnoozeUntil && now < state.backupSnoozeUntil) return false;
+    if (!state.lastFileExportAt) return false;
+    return (now - state.lastFileExportAt) >= WEEK_MS;
+  }
+
+  async function exportProgressFile() {
+    const jsonStr = JSON.stringify(state, null, 2);
+    const filename = 'slovosk_backup.json';
+
+    // Desktop Chrome progressive enhancement: lets user overwrite existing file directly
+    if (typeof window.showSaveFilePicker === 'function') {
+      try {
+        const handle = await window.showSaveFilePicker({
+          suggestedName: filename,
+          types: [{ description: 'SlovoSK Backup JSON', accept: { 'application/json': ['.json'] } }]
+        });
+        const writable = await handle.createWritable();
+        await writable.write(jsonStr);
+        await writable.close();
+        state.lastFileExportAt = Date.now();
+        state.backupSnoozeUntil = 0;
+        saveAutoSnapshot('export');
+        saveState();
+        showToast('Копію прогресу збережено: slovosk_backup.json ✓');
+        return true;
+      } catch (e) {
+        if (e && e.name === 'AbortError') return false;
+      }
+    }
+
+    // Standard Android/iOS/Browser download with fixed filename
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+
+    state.lastFileExportAt = Date.now();
+    state.backupSnoozeUntil = 0;
+    saveAutoSnapshot('export');
+    saveState();
+    showToast('Копію збережено: slovosk_backup.json ✓');
+    return true;
   }
 
   function addXP(amount) {
@@ -648,6 +760,7 @@
   function setTab(tab) {
     stopAudioMode();
     MicEngine.stop();
+    if (tab !== 'course' && progressEditMode) exitProgressEditMode();
     activeTab = tab;
     document.querySelectorAll('.nav-item').forEach((btn) => {
       btn.classList.toggle('active', btn.dataset.tab === tab);
@@ -680,6 +793,172 @@
   // TAB 1: COURSE (Accordion + Levels A0/A1/A2 + Exams + Stories)
   // =====================================================
   const expandedSections = {}; // secId -> boolean
+  let progressEditMode = false;
+  let progressDraft = null; // { origLessons, origStories, origExams, lessons, stories, exams }
+
+  function enterProgressEditMode() {
+    progressEditMode = true;
+    progressDraft = {
+      origLessons: new Set(state.completedLessons),
+      origStories: new Set(state.completedStories),
+      origExams: new Set(state.passedExams),
+      lessons: new Set(state.completedLessons),
+      stories: new Set(state.completedStories),
+      exams: new Set(state.passedExams)
+    };
+    mainView.classList.add('edit-active');
+  }
+
+  function exitProgressEditMode() {
+    progressEditMode = false;
+    progressDraft = null;
+    mainView.classList.remove('edit-active');
+    const bar = document.getElementById('edit-confirm-bar');
+    if (bar) bar.remove();
+  }
+
+  function getProgressDraftDiff() {
+    if (!progressDraft) {
+      return {
+        resetLessons: [], restoreLessons: [],
+        resetStories: [], restoreStories: [],
+        resetExams: [], restoreExams: [],
+        toReset: 0, toRestore: 0, total: 0
+      };
+    }
+    const resetLessons = [...progressDraft.origLessons].filter((id) => !progressDraft.lessons.has(id));
+    const restoreLessons = [...progressDraft.lessons].filter((id) => !progressDraft.origLessons.has(id));
+    const resetStories = [...progressDraft.origStories].filter((id) => !progressDraft.stories.has(id));
+    const restoreStories = [...progressDraft.stories].filter((id) => !progressDraft.origStories.has(id));
+    const resetExams = [...progressDraft.origExams].filter((id) => !progressDraft.exams.has(id));
+    const restoreExams = [...progressDraft.exams].filter((id) => !progressDraft.origExams.has(id));
+    const toReset = resetLessons.length + resetStories.length + resetExams.length;
+    const toRestore = restoreLessons.length + restoreStories.length + restoreExams.length;
+    return {
+      resetLessons, restoreLessons,
+      resetStories, restoreStories,
+      resetExams, restoreExams,
+      toReset, toRestore,
+      total: toReset + toRestore
+    };
+  }
+
+  function renderEditConfirmBar() {
+    let bar = document.getElementById('edit-confirm-bar');
+    if (!progressEditMode) {
+      if (bar) bar.remove();
+      return;
+    }
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.id = 'edit-confirm-bar';
+      bar.className = 'edit-confirm-bar';
+      document.body.appendChild(bar);
+    }
+    const diff = getProgressDraftDiff();
+    const summaryText = diff.total === 0
+      ? 'Натисни на блок або урок'
+      : [
+          diff.toReset > 0 ? `<span style="color:var(--red);">↺ Скинути: ${diff.toReset}</span>` : '',
+          diff.toRestore > 0 ? `<span style="color:var(--green);">✓ Повернути: ${diff.toRestore}</span>` : ''
+        ].filter(Boolean).join(' • ');
+
+    bar.innerHTML = `
+      <div class="edit-confirm-inner">
+        <div class="edit-confirm-info">${summaryText}</div>
+        <div style="display:flex;gap:8px;flex-shrink:0;">
+          <button class="btn btn-outline btn-sm" id="edit-bar-cancel">Скасувати</button>
+          <button class="btn btn-primary btn-sm" id="edit-bar-confirm" ${diff.total === 0 ? 'disabled' : ''}>✓ Підтвердити${diff.total > 0 ? ` (${diff.total})` : ''}</button>
+        </div>
+      </div>
+    `;
+
+    document.getElementById('edit-bar-cancel').onclick = () => {
+      SoundFX.tap();
+      exitProgressEditMode();
+      renderCourseTab();
+    };
+    document.getElementById('edit-bar-confirm').onclick = () => {
+      if (diff.total === 0) return;
+      openConfirmProgressModal(diff);
+    };
+  }
+
+  function openConfirmProgressModal(diff) {
+    const resetParts = [];
+    if (diff.resetLessons.length) resetParts.push(`уроків: <strong>${diff.resetLessons.length}</strong>`);
+    if (diff.resetStories.length) resetParts.push(`діалогів: <strong>${diff.resetStories.length}</strong>`);
+    if (diff.resetExams.length) resetParts.push(`екзаменів: <strong>${diff.resetExams.length}</strong>`);
+
+    const restoreParts = [];
+    if (diff.restoreLessons.length) restoreParts.push(`уроків: <strong>${diff.restoreLessons.length}</strong>`);
+    if (diff.restoreStories.length) restoreParts.push(`діалогів: <strong>${diff.restoreStories.length}</strong>`);
+    if (diff.restoreExams.length) restoreParts.push(`екзаменів: <strong>${diff.restoreExams.length}</strong>`);
+
+    openModal(`
+      <h3>↺ Підтвердити зміни прогресу?</h3>
+      <div class="card" style="background:var(--surface-2);margin:12px 0;">
+        ${resetParts.length ? `<div style="margin-bottom:6px;color:var(--red);font-weight:700;">↺ Скинути: ${resetParts.join(', ')}</div>` : ''}
+        ${restoreParts.length ? `<div style="color:var(--green);font-weight:700;">✓ Повернути (позначити пройденим): ${restoreParts.join(', ')}</div>` : ''}
+      </div>
+      ${diff.resetLessons.length > 0 ? `
+        <label class="row-between" style="padding:8px 2px 14px;cursor:pointer;gap:10px;">
+          <span style="font-size:13px;">Також очистити слова й SRS для скинутих уроків</span>
+          <input type="checkbox" id="m-reset-srs-chk" checked style="width:20px;height:20px;accent-color:var(--blue);" />
+        </label>
+      ` : ''}
+      <p class="muted" style="font-size:12px;margin:0 0 14px;">Перед збереженням додаток автоматично створить резервну копію (її можна відновити в Налаштуваннях).</p>
+      <div style="display:flex;gap:10px;">
+        <button class="btn btn-outline btn-full" id="m-edit-back">Назад</button>
+        <button class="btn btn-primary btn-full" id="m-edit-apply">✓ Застосувати</button>
+      </div>
+    `);
+
+    document.getElementById('m-edit-back').onclick = closeModal;
+    document.getElementById('m-edit-apply').onclick = () => {
+      const clearSrs = document.getElementById('m-reset-srs-chk')?.checked ?? true;
+      // Save safety snapshot before modifying progress
+      saveAutoSnapshot('pre-edit');
+
+      state.completedLessons = [...progressDraft.lessons];
+      state.completedStories = [...progressDraft.stories];
+      state.passedExams = [...progressDraft.exams];
+
+      // Clean up words & SRS for reset lessons
+      if (clearSrs && diff.resetLessons.length > 0) {
+        const resetWordIds = new Set();
+        diff.resetLessons.forEach((lesId) => {
+          const les = ALL_LESSONS.find((l) => l.id === lesId);
+          if (les) les.words.forEach((w) => resetWordIds.add(w.id));
+        });
+        state.knownWords = state.knownWords.filter((id) => !resetWordIds.has(id));
+        state.weakWords = state.weakWords.filter((id) => !resetWordIds.has(id));
+        resetWordIds.forEach((id) => { delete state.srs[id]; });
+      }
+
+      // Restore words & SRS for marked-done lessons
+      if (diff.restoreLessons.length > 0) {
+        const now = Date.now();
+        diff.restoreLessons.forEach((lesId) => {
+          const les = ALL_LESSONS.find((l) => l.id === lesId);
+          if (!les) return;
+          les.words.forEach((w) => {
+            if (!state.knownWords.includes(w.id)) state.knownWords.push(w.id);
+            if (!state.srs[w.id]) {
+              state.srs[w.id] = { box: 1, nextReview: now + SRS_DAYS[1] * 86400000 };
+            }
+          });
+        });
+      }
+
+      saveState();
+      SoundFX.ok();
+      closeModal();
+      exitProgressEditMode();
+      renderCourseTab();
+      showToast('Прогрес успішно оновлено! ✓');
+    };
+  }
 
   function initAccordionDefaults() {
     let firstActiveFound = false;
@@ -699,7 +978,8 @@
     }
   }
 
-  function renderCourseTab() {
+  function renderCourseTab(preserveScroll = false) {
+    const prevScroll = preserveScroll ? window.scrollY : 0;
     if (SECTIONS.length === 0) {
       mainView.innerHTML = `
         <div class="card" style="text-align:center;padding:24px;">
@@ -763,7 +1043,24 @@
     const filteredSections = SECTIONS.map((s, idx) => ({ s, idx }))
       .filter(({ s }) => state.levelFilter === 'ALL' || s.level === state.levelFilter);
 
-    let html = `
+    const showWeeklyBanner = !progressEditMode && isWeeklyFileExportDue();
+
+    let html = '';
+
+    if (showWeeklyBanner) {
+      html += `
+        <div class="card weekly-backup-banner">
+          <div style="font-weight:900;font-size:15px;margin-bottom:4px;">💾 Щотижнева резервна копія</div>
+          <div class="muted" style="margin-bottom:10px;">Пройшов тиждень від останнього збереження. Експортуй свіжий файл <strong>slovosk_backup.json</strong> на телефон (~3 КБ).</div>
+          <div style="display:flex;gap:8px;">
+            <button class="btn btn-blue btn-sm" id="weekly-export-now">⬇️ Зберегти зараз</button>
+            <button class="btn btn-outline btn-sm" id="weekly-export-later">Пізніше</button>
+          </div>
+        </div>
+      `;
+    }
+
+    html += `
       <div class="card goal-card">
         <div class="row-between">
           <div>
@@ -789,12 +1086,26 @@
       </div>
 
       <div class="mode-toggle-bar">
-        <div class="muted" style="font-weight:700;">Екзамен після розділу: ≤1 помилка</div>
-        <button class="chip-btn ${state.freeUnlock ? 'active' : ''}" id="toggle-unlock-mode">
-          ${state.freeUnlock ? '🔓 Вільний доступ' : '🔒 По порядку'}
-        </button>
+        <div class="muted" style="font-weight:700;font-size:12px;">Екзамен: ≤1 помилка</div>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <button class="chip-btn ${progressEditMode ? 'active edit-btn-on' : ''}" id="toggle-progress-edit" title="Скинути або повернути прогрес">
+            ${progressEditMode ? '✕ Вийти' : '↺ Скинути'}
+          </button>
+          <button class="chip-btn ${state.freeUnlock ? 'active' : ''}" id="toggle-unlock-mode">
+            ${state.freeUnlock ? '🔓 Вільно' : '🔒 По порядку'}
+          </button>
+        </div>
       </div>
     `;
+
+    if (progressEditMode) {
+      html += `
+        <div class="card edit-mode-banner">
+          <div style="font-weight:900;font-size:14px;color:var(--orange);margin-bottom:3px;">✏️ Режим редагування прогресу</div>
+          <div class="muted" style="font-size:12.5px;">Вибирай цілий блок кнопкою на банері розділу або розкрий розділ і натискай на окремі уроки, діалоги чи екзамени, щоб <strong>скинути</strong> або <strong>повернути</strong> їх.</div>
+        </div>
+      `;
+    }
 
     if (filteredSections.length === 0) {
       html += `
@@ -807,27 +1118,48 @@
     }
 
     filteredSections.forEach(({ s: sec, idx: secIdx }) => {
-      const secUnlocked = isSectionUnlocked(secIdx);
-      const examPassed = state.passedExams.includes(sec.id);
-      const doneLessonsInSec = sec.lessons.filter((l) => state.completedLessons.includes(l.id)).length;
+      const secUnlocked = progressEditMode ? true : isSectionUnlocked(secIdx);
+      const examSet = progressEditMode ? progressDraft.exams : new Set(state.passedExams);
+      const lessonSet = progressEditMode ? progressDraft.lessons : new Set(state.completedLessons);
+      const storySet = progressEditMode ? progressDraft.stories : new Set(state.completedStories);
+
+      const examPassed = examSet.has(sec.id);
+      const doneLessonsInSec = sec.lessons.filter((l) => lessonSet.has(l.id)).length;
       const isOpen = !!expandedSections[sec.id];
+
+      // Block-level stats for Edit Mode
+      const blockCheckedCount = doneLessonsInSec + (sec.story && storySet.has(sec.story.id) ? 1 : 0) + (examPassed ? 1 : 0);
+      const blockHasChanges = progressEditMode && (
+        sec.lessons.some((l) => progressDraft.lessons.has(l.id) !== progressDraft.origLessons.has(l.id)) ||
+        (sec.story && progressDraft.stories.has(sec.story.id) !== progressDraft.origStories.has(sec.story.id)) ||
+        (progressDraft.exams.has(sec.id) !== progressDraft.origExams.has(sec.id))
+      );
+
       const statusLabel = examPassed
         ? 'Складено ✅'
         : (secUnlocked ? `${doneLessonsInSec}/${sec.lessons.length} уроків` : '🔒 Склади попередній екзамен');
 
       html += `
         <div class="section-wrap">
-          <button class="section-banner ${secUnlocked ? '' : 'sec-locked'}" style="background:${sec.color};" data-toggle-sec="${sec.id}">
-            <div style="min-width:0;">
+          <div class="section-banner ${secUnlocked ? '' : 'sec-locked'} ${blockHasChanges ? 'sec-edited' : ''}" style="background:${sec.color};" data-toggle-sec="${sec.id}" role="button" tabindex="0">
+            <div style="min-width:0;flex:1;">
               <div class="sec-top-tags">
                 <span class="sec-lvl-pill">${escHtml(sec.level)}</span>
                 <span class="sec-lvl-pill">${statusLabel}</span>
+                ${blockHasChanges ? '<span class="sec-lvl-pill" style="background:rgba(0,0,0,0.45);">✏️ змінено</span>' : ''}
               </div>
               <h2>${escHtml(sec.title)}</h2>
               <p>${escHtml(sec.subtitle)}</p>
             </div>
-            <span class="sec-chevron">${isOpen ? '▾' : '▸'}</span>
-          </button>
+            <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
+              ${progressEditMode ? `
+                <button type="button" class="sec-block-btn ${blockCheckedCount > 0 ? 'reset' : 'restore'}" data-block-toggle="${sec.id}">
+                  ${blockCheckedCount > 0 ? '↺ Скинути блок' : '✓ Повернути блок'}
+                </button>
+              ` : ''}
+              <span class="sec-chevron">${isOpen ? '▾' : '▸'}</span>
+            </div>
+          </div>
       `;
 
       if (isOpen) {
@@ -835,67 +1167,115 @@
 
         // 4 Lessons
         sec.lessons.forEach((les, lesIdx) => {
-          const done = state.completedLessons.includes(les.id);
-          const unlocked = isLessonUnlocked(secIdx, lesIdx);
-          const isNext = unlocked && !done;
-          const cls = done ? 'done' : (isNext ? 'next-up' : (!unlocked ? 'locked' : ''));
-          const actionTag = done ? 'Повторити' : (unlocked ? 'Старт' : '🔒');
+          const done = lessonSet.has(les.id);
           const gramTag = (les.grammar && les.grammar.length) ? ' • Граматика' : '';
 
-          html += `
-            <button class="lesson-card ${cls}" data-lesson-id="${les.id}" ${unlocked ? '' : 'data-locked="1"'}>
-              <div class="lesson-icon-box">
-                <span>${les.icon}</span>
-                ${done ? '<span class="lesson-check-badge">✓</span>' : ''}
-              </div>
-              <div class="lesson-meta">
-                <div class="lesson-code">Урок ${escHtml(les.code)} • 6 слів${gramTag}</div>
-                <div class="lesson-title">${escHtml(les.title)}</div>
-                <div class="lesson-desc">${escHtml(les.desc)}</div>
-              </div>
-              <div class="lesson-action-tag">${actionTag}</div>
-            </button>
-          `;
+          if (progressEditMode) {
+            const wasDone = progressDraft.origLessons.has(les.id);
+            const editCls = (wasDone && !done) ? 'edit-will-reset' : ((!wasDone && done) ? 'edit-will-restore' : (done ? 'done' : ''));
+            const editTag = (wasDone && !done) ? '↺ Скинути' : ((!wasDone && done) ? '✓ Повернути' : (done ? 'Пройдено' : 'Не пройдено'));
+            html += `
+              <button class="lesson-card ${editCls}" data-edit-type="lesson" data-edit-id="${les.id}">
+                <div class="edit-checkbox ${done ? 'checked' : ''} ${(wasDone && !done) ? 'reset' : ''}">${done ? '✓' : ''}</div>
+                <div class="lesson-meta">
+                  <div class="lesson-code">Урок ${escHtml(les.code)} • 6 слів${gramTag}</div>
+                  <div class="lesson-title">${escHtml(les.title)}</div>
+                </div>
+                <div class="lesson-action-tag">${editTag}</div>
+              </button>
+            `;
+          } else {
+            const unlocked = isLessonUnlocked(secIdx, lesIdx);
+            const isNext = unlocked && !done;
+            const cls = done ? 'done' : (isNext ? 'next-up' : (!unlocked ? 'locked' : ''));
+            const actionTag = done ? 'Повторити' : (unlocked ? 'Старт' : '🔒');
+            html += `
+              <button class="lesson-card ${cls}" data-lesson-id="${les.id}" ${unlocked ? '' : 'data-locked="1"'}>
+                <div class="lesson-icon-box">
+                  <span>${les.icon}</span>
+                  ${done ? '<span class="lesson-check-badge">✓</span>' : ''}
+                </div>
+                <div class="lesson-meta">
+                  <div class="lesson-code">Урок ${escHtml(les.code)} • 6 слів${gramTag}</div>
+                  <div class="lesson-title">${escHtml(les.title)}</div>
+                  <div class="lesson-desc">${escHtml(les.desc)}</div>
+                </div>
+                <div class="lesson-action-tag">${actionTag}</div>
+              </button>
+            `;
+          }
         });
 
         // Mini-Dialogue Story Card
         if (sec.story) {
-          const stDone = state.completedStories.includes(sec.story.id);
-          const stUnlocked = isStoryUnlocked(secIdx);
-          html += `
-            <button class="lesson-card story-card ${stDone ? 'done' : ''} ${stUnlocked ? '' : 'locked'}"
-              data-story-sec="${sec.id}" ${stUnlocked ? '' : 'data-locked="1"'}>
-              <div class="lesson-icon-box">
-                <span>${sec.story.icon || '💬'}</span>
-                ${stDone ? '<span class="lesson-check-badge">✓</span>' : ''}
-              </div>
-              <div class="lesson-meta">
-                <div class="lesson-code">Міні-діалог • +15 XP</div>
-                <div class="lesson-title">${escHtml(sec.story.title)}</div>
-                <div class="lesson-desc">${escHtml(sec.story.desc)}</div>
-              </div>
-              <div class="lesson-action-tag">${stDone ? 'Ще раз' : (stUnlocked ? 'Читати' : '🔒')}</div>
-            </button>
-          `;
+          const stDone = storySet.has(sec.story.id);
+          if (progressEditMode) {
+            const wasDone = progressDraft.origStories.has(sec.story.id);
+            const editCls = (wasDone && !stDone) ? 'edit-will-reset' : ((!wasDone && stDone) ? 'edit-will-restore' : (stDone ? 'done' : ''));
+            const editTag = (wasDone && !stDone) ? '↺ Скинути' : ((!wasDone && stDone) ? '✓ Повернути' : (stDone ? 'Пройдено' : 'Не пройдено'));
+            html += `
+              <button class="lesson-card story-card ${editCls}" data-edit-type="story" data-edit-id="${sec.story.id}">
+                <div class="edit-checkbox ${stDone ? 'checked' : ''} ${(wasDone && !stDone) ? 'reset' : ''}">${stDone ? '✓' : ''}</div>
+                <div class="lesson-meta">
+                  <div class="lesson-code">Міні-діалог</div>
+                  <div class="lesson-title">${escHtml(sec.story.title)}</div>
+                </div>
+                <div class="lesson-action-tag">${editTag}</div>
+              </button>
+            `;
+          } else {
+            const stUnlocked = isStoryUnlocked(secIdx);
+            html += `
+              <button class="lesson-card story-card ${stDone ? 'done' : ''} ${stUnlocked ? '' : 'locked'}"
+                data-story-sec="${sec.id}" ${stUnlocked ? '' : 'data-locked="1"'}>
+                <div class="lesson-icon-box">
+                  <span>${sec.story.icon || '💬'}</span>
+                  ${stDone ? '<span class="lesson-check-badge">✓</span>' : ''}
+                </div>
+                <div class="lesson-meta">
+                  <div class="lesson-code">Міні-діалог • +15 XP</div>
+                  <div class="lesson-title">${escHtml(sec.story.title)}</div>
+                  <div class="lesson-desc">${escHtml(sec.story.desc)}</div>
+                </div>
+                <div class="lesson-action-tag">${stDone ? 'Ще раз' : (stUnlocked ? 'Читати' : '🔒')}</div>
+              </button>
+            `;
+          }
         }
 
         // Section Exam Card (Max 1 mistake!)
-        const exUnlocked = isExamUnlocked(secIdx);
-        html += `
-          <button class="lesson-card exam-card ${examPassed ? 'done' : ''} ${exUnlocked ? '' : 'locked'}"
-            data-exam-sec="${sec.id}" ${exUnlocked ? '' : 'data-locked="1"'}>
-            <div class="lesson-icon-box">
-              <span>🎓</span>
-              ${examPassed ? '<span class="lesson-check-badge">✓</span>' : ''}
-            </div>
-            <div class="lesson-meta">
-              <div class="lesson-code">Екзамен розділу • Макс. 1 помилка</div>
-              <div class="lesson-title">Перевірка знань (${sec.lessons.length * 6} слів)</div>
-              <div class="lesson-desc">${examPassed ? 'Розділ успішно складено! Наступна тема відкрита.' : 'Склади тест (до 1 помилки), щоб відкрити наступний розділ'}</div>
-            </div>
-            <div class="lesson-action-tag">${examPassed ? 'Складено' : (exUnlocked ? 'Скласти' : '🔒')}</div>
-          </button>
-        `;
+        if (progressEditMode) {
+          const wasDone = progressDraft.origExams.has(sec.id);
+          const editCls = (wasDone && !examPassed) ? 'edit-will-reset' : ((!wasDone && examPassed) ? 'edit-will-restore' : (examPassed ? 'done' : ''));
+          const editTag = (wasDone && !examPassed) ? '↺ Скинути' : ((!wasDone && examPassed) ? '✓ Повернути' : (examPassed ? 'Складено' : 'Не складено'));
+          html += `
+            <button class="lesson-card exam-card ${editCls}" data-edit-type="exam" data-edit-id="${sec.id}">
+              <div class="edit-checkbox ${examPassed ? 'checked' : ''} ${(wasDone && !examPassed) ? 'reset' : ''}">${examPassed ? '✓' : ''}</div>
+              <div class="lesson-meta">
+                <div class="lesson-code">Екзамен розділу</div>
+                <div class="lesson-title">Перевірка знань (${sec.lessons.length * 6} слів)</div>
+              </div>
+              <div class="lesson-action-tag">${editTag}</div>
+            </button>
+          `;
+        } else {
+          const exUnlocked = isExamUnlocked(secIdx);
+          html += `
+            <button class="lesson-card exam-card ${examPassed ? 'done' : ''} ${exUnlocked ? '' : 'locked'}"
+              data-exam-sec="${sec.id}" ${exUnlocked ? '' : 'data-locked="1"'}>
+              <div class="lesson-icon-box">
+                <span>🎓</span>
+                ${examPassed ? '<span class="lesson-check-badge">✓</span>' : ''}
+              </div>
+              <div class="lesson-meta">
+                <div class="lesson-code">Екзамен розділу • Макс. 1 помилка</div>
+                <div class="lesson-title">Перевірка знань (${sec.lessons.length * 6} слів)</div>
+                <div class="lesson-desc">${examPassed ? 'Розділ успішно складено! Наступна тема відкрита.' : 'Склади тест (до 1 помилки), щоб відкрити наступний розділ'}</div>
+              </div>
+              <div class="lesson-action-tag">${examPassed ? 'Складено' : (exUnlocked ? 'Скласти' : '🔒')}</div>
+            </button>
+          `;
+        }
 
         html += `</div>`;
       }
@@ -903,6 +1283,26 @@
     });
 
     mainView.innerHTML = html;
+    renderEditConfirmBar();
+    if (preserveScroll) window.scrollTo({ top: prevScroll, behavior: 'instant' });
+
+    // Weekly export banner handlers
+    const wNow = document.getElementById('weekly-export-now');
+    if (wNow) {
+      wNow.onclick = async () => {
+        await exportProgressFile();
+        renderCourseTab(true);
+      };
+    }
+    const wLater = document.getElementById('weekly-export-later');
+    if (wLater) {
+      wLater.onclick = () => {
+        state.backupSnoozeUntil = Date.now() + 86400000;
+        saveState();
+        renderCourseTab(true);
+        showToast('Нагадаємо завтра 👍');
+      };
+    }
 
     // Bind events
     document.getElementById('level-tabs').querySelectorAll('.level-tab').forEach((b) => {
@@ -914,54 +1314,101 @@
       };
     });
 
+    document.getElementById('toggle-progress-edit').onclick = () => {
+      SoundFX.tap();
+      if (progressEditMode) exitProgressEditMode();
+      else enterProgressEditMode();
+      renderCourseTab(true);
+    };
+
     document.getElementById('toggle-unlock-mode').onclick = () => {
       state.freeUnlock = !state.freeUnlock;
       saveState();
       SoundFX.tap();
-      renderCourseTab();
+      renderCourseTab(true);
       showToast(state.freeUnlock ? 'Вільний доступ увімкнено' : 'Сувора хронологія + екзамени');
     };
+
+    mainView.querySelectorAll('[data-block-toggle]').forEach((btn) => {
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        if (!progressEditMode) return;
+        SoundFX.tap();
+        const sid = btn.dataset.blockToggle;
+        const sec = SECTIONS.find((s) => s.id === sid);
+        if (!sec) return;
+        const anyChecked =
+          sec.lessons.some((l) => progressDraft.lessons.has(l.id)) ||
+          (sec.story && progressDraft.stories.has(sec.story.id)) ||
+          progressDraft.exams.has(sec.id);
+
+        if (anyChecked) {
+          sec.lessons.forEach((l) => progressDraft.lessons.delete(l.id));
+          if (sec.story) progressDraft.stories.delete(sec.story.id);
+          progressDraft.exams.delete(sec.id);
+        } else {
+          sec.lessons.forEach((l) => progressDraft.lessons.add(l.id));
+          if (sec.story) progressDraft.stories.add(sec.story.id);
+          progressDraft.exams.add(sec.id);
+        }
+        renderCourseTab(true);
+      };
+    });
 
     mainView.querySelectorAll('[data-toggle-sec]').forEach((b) => {
       b.onclick = () => {
         const sid = b.dataset.toggleSec;
         expandedSections[sid] = !expandedSections[sid];
         SoundFX.tap();
-        renderCourseTab();
+        renderCourseTab(true);
       };
     });
 
-    mainView.querySelectorAll('[data-lesson-id]').forEach((card) => {
-      card.onclick = () => {
-        if (card.dataset.locked === '1') {
-          showToast('Спочатку пройди попередній урок або екзамен розділу!');
-          return;
-        }
-        startLesson(card.dataset.lessonId);
-      };
-    });
+    if (progressEditMode) {
+      mainView.querySelectorAll('[data-edit-type]').forEach((card) => {
+        card.onclick = () => {
+          SoundFX.tap();
+          const t = card.dataset.editType;
+          const id = card.dataset.editId;
+          const targetSet = t === 'lesson' ? progressDraft.lessons : (t === 'story' ? progressDraft.stories : progressDraft.exams);
+          if (targetSet.has(id)) targetSet.delete(id);
+          else targetSet.add(id);
+          renderCourseTab(true);
+        };
+      });
+    } else {
+      mainView.querySelectorAll('[data-lesson-id]').forEach((card) => {
+        card.onclick = () => {
+          if (card.dataset.locked === '1') {
+            showToast('Спочатку пройди попередній урок або екзамен розділу!');
+            return;
+          }
+          startLesson(card.dataset.lessonId);
+        };
+      });
 
-    mainView.querySelectorAll('[data-story-sec]').forEach((card) => {
-      card.onclick = () => {
-        if (card.dataset.locked === '1') {
-          showToast('Спочатку пройди всі 4 уроки цього розділу!');
-          return;
-        }
-        const sec = SECTIONS.find((s) => s.id === card.dataset.storySec);
-        if (sec && sec.story) startStory(sec);
-      };
-    });
+      mainView.querySelectorAll('[data-story-sec]').forEach((card) => {
+        card.onclick = () => {
+          if (card.dataset.locked === '1') {
+            showToast('Спочатку пройди всі 4 уроки цього розділу!');
+            return;
+          }
+          const sec = SECTIONS.find((s) => s.id === card.dataset.storySec);
+          if (sec && sec.story) startStory(sec);
+        };
+      });
 
-    mainView.querySelectorAll('[data-exam-sec]').forEach((card) => {
-      card.onclick = () => {
-        if (card.dataset.locked === '1') {
-          showToast('Спочатку заверши всі 4 уроки розділу, щоб відкрити екзамен!');
-          return;
-        }
-        const sec = SECTIONS.find((s) => s.id === card.dataset.examSec);
-        if (sec) startSectionExam(sec);
-      };
-    });
+      mainView.querySelectorAll('[data-exam-sec]').forEach((card) => {
+        card.onclick = () => {
+          if (card.dataset.locked === '1') {
+            showToast('Спочатку заверши всі 4 уроки розділу, щоб відкрити екзамен!');
+            return;
+          }
+          const sec = SECTIONS.find((s) => s.id === card.dataset.examSec);
+          if (sec) startSectionExam(sec);
+        };
+      });
+    }
   }
 
   // =====================================================
@@ -2894,11 +3341,22 @@
 
       <div class="card">
         <div style="font-weight:900;font-size:16px;margin-bottom:8px;">💾 Резервна копія прогресу</div>
+        <div class="row-between" style="padding:4px 0 10px;">
+          <div>
+            <div style="font-weight:700;">📅 Щотижневий експорт на телефон</div>
+            <div class="muted">Раз на 7 днів нагадує зберегти <strong>slovosk_backup.json</strong> (останній: ${formatShortDate(state.lastFileExportAt)})</div>
+          </div>
+          <label class="switch"><input type="checkbox" id="set-weekly-backup" ${state.weeklyBackupEnabled ? 'checked' : ''}><span class="slider"></span></label>
+        </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
           <button class="btn btn-outline btn-sm" id="set-export">⬇️ Експорт JSON</button>
           <button class="btn btn-outline btn-sm" id="set-import">⬆️ Імпорт JSON</button>
-          <button class="btn btn-outline btn-sm" id="set-reset" style="color:var(--red);">🗑️ Скинути</button>
+          ${getAutoSnapshot() ? `<button class="btn btn-outline btn-sm" id="set-restore-snap">⏪ Авто-копія (${formatShortDate(getAutoSnapshot().savedAt)})</button>` : ''}
+          <button class="btn btn-outline btn-sm" id="set-reset" style="color:var(--red);">🗑️ Скинути все</button>
           <input type="file" id="import-file" accept=".json" class="hidden" />
+        </div>
+        <div class="muted" style="margin-top:9px;font-size:11.5px;">
+          Внутрішня авто-копія сама перезаписує стару щотижня й перед скиданням. Браузер Android не дозволяє сайтам автоматично видаляти файли в «Завантаженнях», але <strong>slovosk_backup.json</strong> важить лише ~3 КБ.
         </div>
       </div>
     `;
@@ -2948,16 +3406,42 @@
     };
     document.getElementById('set-clear-key').onclick = () => { state.geminiKey = ''; saveState(); renderSettingsTab(); };
 
-    document.getElementById('set-export').onclick = () => {
-      const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `slovosk_backup_${todayKey()}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
-      showToast('Копію прогресу збережено');
+    document.getElementById('set-weekly-backup').onchange = (e) => {
+      state.weeklyBackupEnabled = e.target.checked;
+      if (state.weeklyBackupEnabled && !state.lastFileExportAt) state.lastFileExportAt = Date.now();
+      saveState();
+      showToast(state.weeklyBackupEnabled ? 'Щотижневий бекап увімкнено 📅' : 'Щотижневі нагадування вимкнено');
     };
+
+    document.getElementById('set-export').onclick = async () => {
+      await exportProgressFile();
+      renderSettingsTab();
+    };
+
+    const snapBtn = document.getElementById('set-restore-snap');
+    if (snapBtn) {
+      snapBtn.onclick = () => {
+        const snap = getAutoSnapshot();
+        if (!snap) return;
+        openModal(`
+          <h3>⏪ Відновити внутрішню авто-копію?</h3>
+          <p class="muted" style="margin-bottom:16px;">Збережено: <strong>${formatShortDate(snap.savedAt)}</strong> • Уроків: <strong>${(snap.data.completedLessons || []).length}</strong> • XP: <strong>${snap.data.xp || 0}</strong>.</p>
+          <div style="display:flex;gap:10px;">
+            <button class="btn btn-outline btn-full" id="m-cancel-snap">Скасувати</button>
+            <button class="btn btn-primary btn-full" id="m-ok-snap">Відновити</button>
+          </div>
+        `);
+        document.getElementById('m-cancel-snap').onclick = closeModal;
+        document.getElementById('m-ok-snap').onclick = () => {
+          state = { ...defaultState(), ...snap.data };
+          applyTheme();
+          saveState();
+          closeModal();
+          renderSettingsTab();
+          showToast('Прогрес відновлено з авто-копії! ✓');
+        };
+      };
+    }
 
     const importFile = document.getElementById('import-file');
     document.getElementById('set-import').onclick = () => importFile.click();
@@ -3013,6 +3497,7 @@
   updateHeader();
 
   discoverModules().then(() => {
+    checkAutoBackupTimers();
     updateSrsBadge();
     setTab('course');
   });

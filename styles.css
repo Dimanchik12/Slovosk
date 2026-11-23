@@ -1276,3 +1276,123 @@ button, input, textarea, select {
   background: var(--orange-soft);
   color: var(--orange);
 }
+
+/* Weekly Backup Banner & Progress Edit Mode */
+.weekly-backup-banner {
+  border-color: var(--blue);
+  background: linear-gradient(135deg, var(--surface) 0%, var(--blue-soft) 100%);
+}
+
+.edit-mode-banner {
+  border-color: var(--orange);
+  background: linear-gradient(135deg, var(--surface) 0%, var(--orange-soft) 100%);
+  padding: 12px 14px;
+}
+
+.chip-btn.edit-btn-on {
+  background: var(--orange-soft);
+  border-color: var(--orange);
+  color: var(--orange);
+}
+
+.section-banner.sec-edited {
+  box-shadow: 0 0 0 3px var(--orange), 0 4px 0 rgba(0, 0, 0, 0.25);
+}
+
+.sec-block-btn {
+  border: 2px solid rgba(255, 255, 255, 0.72);
+  background: rgba(0, 0, 0, 0.34);
+  color: #fff;
+  border-radius: 10px;
+  padding: 6px 9px;
+  font-size: 11.5px;
+  font-weight: 900;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.sec-block-btn.reset {
+  background: rgba(255, 75, 75, 0.85);
+  border-color: #fff;
+}
+
+.sec-block-btn.restore {
+  background: rgba(28, 176, 246, 0.9);
+  border-color: #fff;
+}
+
+.edit-checkbox {
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
+  border: 2.5px solid var(--border);
+  background: var(--surface-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 17px;
+  font-weight: 900;
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.edit-checkbox.checked {
+  background: var(--green);
+  border-color: var(--green);
+}
+
+.edit-checkbox.reset {
+  border-color: var(--red);
+  background: var(--red-soft);
+}
+
+.lesson-card.edit-will-reset {
+  border-color: var(--red) !important;
+  background: var(--red-soft) !important;
+}
+
+.lesson-card.edit-will-reset .lesson-action-tag {
+  background: var(--red) !important;
+  color: #fff !important;
+}
+
+.lesson-card.edit-will-restore {
+  border-color: var(--blue) !important;
+  background: var(--blue-soft) !important;
+}
+
+.lesson-card.edit-will-restore .lesson-action-tag {
+  background: var(--blue) !important;
+  color: #fff !important;
+}
+
+.main-view.edit-active {
+  padding-bottom: calc(160px + env(safe-area-inset-bottom));
+}
+
+.edit-confirm-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: calc(64px + env(safe-area-inset-bottom));
+  z-index: 42;
+  background: var(--surface);
+  border-top: 2px solid var(--orange);
+  padding: 10px 14px;
+  box-shadow: 0 -6px 20px rgba(0, 0, 0, 0.35);
+}
+
+.edit-confirm-inner {
+  max-width: var(--max-w);
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.edit-confirm-info {
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.3;
+}
